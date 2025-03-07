@@ -1,0 +1,464 @@
+// FormatParsers.js - Handles parsing of various biology file formats
+
+/**
+ * Parse FASTA format sequence data
+ * @param {string} content - The file content
+ * @returns {object} Parsed sequence information
+ */
+export const parseFasta = (content) => {
+  const sequences = [];
+  const lines = content.split("\n");
+  
+  let currentSeq = null;
+  let currentHeader = "";
+  
+  for (const line of lines) {
+    if (line.startsWith(">")) {
+      if (currentSeq) {
+        sequences.push({
+          header: currentHeader,
+          sequence: currentSeq,
+          length: currentSeq.length
+        });
+      }
+      currentHeader = line.substring(1).trim();
+      currentSeq = "";
+    } else if (line.trim() && currentHeader) {
+      currentSeq += line.trim();
+    }
+  }
+  
+  if (currentSeq) {
+    sequences.push({
+      header: currentHeader,
+      sequence: currentSeq,
+      length: currentSeq.length
+    });
+  }
+  
+  // Analyze sequence composition
+  let nucleotideCount = { A: 0, T: 0, G: 0, C: 0, N: 0, other: 0 };
+  let isNucleotide = true;
+  
+  // Check first sequence to determine type
+  if (sequences.length > 0) {
+    const seq = sequences[0].sequence.toUpperCase();
+    
+    // Count nucleotides
+    for (const base of seq) {
+      if (base in nucleotideCount) {
+        nucleotideCount[base]++;
+      } else {
+        nucleotideCount.other++;
+      }
+    }
+    
+    // Determine if it's likely to be nucleotide
+    const atgcPercent = (nucleotideCount.A + nucleotideCount.T + nucleotideCount.G + nucleotideCount.C) / seq.length * 100;
+    isNucleotide = atgcPercent > 80; // If >80% ATGC, probably nucleotide
+  }
+  
+  return {
+    format: "fasta",
+    sequenceCount: sequences.length,
+    sequences: sequences.map(seq => ({
+      ...seq,
+      sequence: seq.sequence.length > 100 ? 
+        seq.sequence.substring(0, 50) + '...' + seq.sequence.substring(seq.sequence.length - 50) : 
+        seq.sequence
+    })),
+    totalLength: sequences.reduce((sum, seq) => sum + seq.length, 0),
+    composition: nucleotideCount,
+    type: isNucleotide ? "nucleotide" : "protein",
+    gcContent: isNucleotide ? 
+      ((nucleotideCount.G + nucleotideCount.C) / 
+      (nucleotideCount.A + nucleotideCount.T + nucleotideCount.G + nucleotideCount.C) * 100).toFixed(2) + "%" : 
+      null
+  };
+};
+
+/**
+ * Parse FASTQ format sequence data
+ * @param {string} content - The file content
+ * @returns {object} Parsed sequence information
+ */
+export const parseFastq = (content) => {
+  const sequences = [];
+  const lines = content.split("\n");
+  
+  for (let i = 0; i < lines.length; i += 4) {
+    if (i + 3 < lines.length && lines[i].startsWith('@')) {
+      const header = lines[i].substring(1).trim();
+      const sequence = lines[i + 1].trim();
+      const quality = lines[i + 3].trim();
+      
+      if (sequence && quality && sequence.length === quality.length) {
+        sequences.push({
+          header,
+          sequence,
+          quality,
+          length: sequence.length
+        });
+      }
+    }
+  }
+  
+  // Calculate quality statistics if we have sequences
+  let qualityStats = { min: 999, max: 0, avg: 0 };
+  let totalQualityScore = 0;
+  let totalBases = 0;
+  
+  if (sequences.length > 0) {
+    // Take a sample of sequences for quality calculation
+    const sampleSize = Math.min(sequences.length, 10);
+    
+    for (let i = 0; i < sampleSize; i++) {
+      const seq = sequences[i];
+      for (const qualChar of seq.quality) {
+        const qualScore = qualChar.charCodeAt(0) - 33; // Convert from ASCII to Phred
+        qualityStats.min = Math.min(qualityStats.min, qualScore);
+        qualityStats.max = Math.max(qualityStats.max, qualScore);
+        totalQualityScore += qualScore;
+        totalBases++;
+      }
+    }
+    
+    qualityStats.avg = totalBases > 0 ? (totalQualityScore / totalBases).toFixed(2) : 0;
+  }
+  
+  return {
+    format: "fastq",
+    sequenceCount: sequences.length,
+    sequences: sequences.slice(0, 5).map(seq => ({
+      ...seq,
+      sequence: seq.sequence.length > 50 ? seq.sequence.substring(0, 50) + '...' : seq.sequence,
+      quality: seq.quality.length > 50 ? seq.quality.substring(0, 50) + '...' : seq.quality
+    })),
+    totalLength: sequences.reduce((sum, seq) => sum + seq.length, 0),
+    qualityStats,
+    avgReadLength: sequences.length > 0 ? (sequences.reduce((sum, seq) => sum + seq.length, 0) / sequences.length).toFixed(1) : 0
+  };
+};
+
+/**
+ * Parse GenBank format
+ * @param {string} content - The file content
+ * @returns {object} Parsed GenBank information
+ */
+export const parseGenBank = (content) => {
+  const features = [];
+  const metadata = {};
+  
+  // Extract basic metadata
+  const locusMatch = content.match(/LOCUS\s+(\S+)\s+(\d+)\s+bp/);
+  if (locusMatch) {
+    metadata.name = locusMatch[1];
+    metadata.length = parseInt(locusMatch[2]);
+  }
+  
+  const definitionMatch = content.match(/DEFINITION\s+(.*?)(?=\n\S)/s);
+  if (definitionMatch) {
+    metadata.definition = definitionMatch[1].replace(/\n\s+/g, ' ').trim();
+  }
+  
+  const organismMatch = content.match(/\s+ORGANISM\s+(.*?)(?=\n\S)/s);
+  if (organismMatch) {
+    metadata.organism = organismMatch[1].replace(/\n\s+/g, ' ').trim();
+  }
+  
+  // Extract features
+  const featuresMatch = content.match(/FEATURES\s+Location\/Qualifiers\s+(.*?)(?=ORIGIN|\n\S\S)/s);
+  if (featuresMatch) {
+    const featureText = featuresMatch[1];
+    const featureLines = featureText.split('\n');
+    
+    let currentFeature = null;
+    
+    for (const line of featureLines) {
+      if (line.match(/^\s{5}\S/)) {
+        // New feature
+        if (currentFeature) {
+          features.push(currentFeature);
+        }
+        
+        const parts = line.trim().split(/\s+/, 2);
+        const type = parts[0];
+        const location = parts.length > 1 ? parts[1] : '';
+        currentFeature = { type, location, qualifiers: {} };
+      } else if (line.match(/^\s{21}\//) && currentFeature) {
+        // Qualifier
+        const match = line.trim().match(/\/(\S+)=(?:"([^"]*)"|([\S]+))/);
+        if (match) {
+          const key = match[1];
+          const value = match[2] || match[3];
+          currentFeature.qualifiers[key] = value;
+        }
+      }
+    }
+    
+    if (currentFeature) {
+      features.push(currentFeature);
+    }
+  }
+  
+  // Extract sequence
+  let sequence = '';
+  const originMatch = content.match(/ORIGIN\s+(.*?)(?=\/\/)/s);
+  if (originMatch) {
+    sequence = originMatch[1].replace(/\d+|\s+/g, '');
+  }
+  
+  // Feature type summary
+  const featureTypeCounts = {};
+  features.forEach(feature => {
+    featureTypeCounts[feature.type] = (featureTypeCounts[feature.type] || 0) + 1;
+  });
+  
+  return {
+    format: "genbank",
+    metadata,
+    features: features,
+    featureCount: features.length,
+    sequence: sequence.length > 100 ? sequence.substring(0, 100) + '...' : sequence,
+    sequenceLength: sequence.length,
+    featureTypes: featureTypeCounts
+  };
+};
+
+/**
+ * Parse PDB format
+ * @param {string} content - The file content
+ * @returns {object} Parsed PDB information
+ */
+export const parsePDB = (content) => {
+  const atoms = [];
+  const metadata = {};
+  const chains = new Set();
+  const residueTypes = new Set();
+  
+  // Extract header info
+  const headerMatch = content.match(/HEADER\s+(.*)/);
+  if (headerMatch) {
+    metadata.header = headerMatch[1].trim();
+  }
+  
+  const titleMatch = content.match(/TITLE\s+(.*?)(?=\nREMARK|\nSOURCE|\nAUTHOR|\nATOM)/s);
+  if (titleMatch) {
+    metadata.title = titleMatch[1].replace(/\n\s+/g, ' ').trim();
+  }
+  
+  // Count atom records
+  const lines = content.split('\n');
+  let atomCount = 0;
+  let hetatmCount = 0;
+  
+  for (const line of lines) {
+    if (line.startsWith('ATOM')) {
+      atomCount++;
+      
+      // Extract chain info
+      const chainId = line.substring(21, 22).trim();
+      if (chainId) {
+        chains.add(chainId);
+      }
+      
+      // Extract residue info
+      const residueType = line.substring(17, 20).trim();
+      if (residueType) {
+        residueTypes.add(residueType);
+      }
+      
+      // Store a few atoms for preview
+      if (atoms.length < 5) {
+        atoms.push({
+          atomNum: line.substring(6, 11).trim(),
+          atomName: line.substring(12, 16).trim(),
+          residueName: residueType,
+          chainId: chainId,
+          residueNum: line.substring(22, 26).trim(),
+          x: parseFloat(line.substring(30, 38).trim()),
+          y: parseFloat(line.substring(38, 46).trim()),
+          z: parseFloat(line.substring(46, 54).trim())
+        });
+      }
+    } else if (line.startsWith('HETATM')) {
+      hetatmCount++;
+    }
+  }
+  
+  // Extract structure details
+  let helixCount = 0;
+  let sheetCount = 0;
+  
+  for (const line of lines) {
+    if (line.startsWith('HELIX')) {
+      helixCount++;
+    } else if (line.startsWith('SHEET')) {
+      sheetCount++;
+    }
+  }
+  
+  return {
+    format: "pdb",
+    metadata,
+    atomCount,
+    hetatmCount,
+    chainCount: chains.size,
+    chains: Array.from(chains),
+    residueTypes: Array.from(residueTypes).slice(0, 10),
+    residueTypeCount: residueTypes.size,
+    atoms,
+    secondaryStructure: {
+      helixCount,
+      sheetCount
+    }
+  };
+};
+
+/**
+ * Parse Clustal format multiple sequence alignment
+ * @param {string} content - The file content
+ * @returns {object} Parsed alignment information
+ */
+export const parseClustal = (content) => {
+  const sequences = {};
+  const lines = content.split('\n');
+  let alignmentLength = 0;
+  
+  // Find the line with CLUSTAL header
+  const headerIndex = lines.findIndex(line => line.includes('CLUSTAL'));
+  
+  if (headerIndex === -1) {
+    throw new Error("Not a valid CLUSTAL format");
+  }
+  
+  // Skip the header line and any blank lines
+  for (let i = headerIndex + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // Skip empty lines and consensus lines (starting with spaces)
+    if (!line || line.startsWith(' ')) continue;
+    
+    const parts = line.split(/\s+/);
+    
+    if (parts.length >= 2) {
+      const seqName = parts[0];
+      const seqSegment = parts[1];
+      
+      if (!sequences[seqName]) {
+        sequences[seqName] = '';
+      }
+      
+      sequences[seqName] += seqSegment;
+      
+      // Update alignment length
+      if (Object.keys(sequences).length === 1) {
+        alignmentLength += seqSegment.length;
+      }
+    }
+  }
+  
+  // Convert to array
+  const sequencesArray = Object.entries(sequences).map(([name, sequence]) => ({
+    name,
+    sequence,
+    length: sequence.length
+  }));
+  
+  // Calculate identity percentage for pairs of sequences
+  const identities = [];
+  
+  if (sequencesArray.length >= 2) {
+    // Compare first two sequences for simplicity
+    const seq1 = sequencesArray[0].sequence;
+    const seq2 = sequencesArray[1].sequence;
+    
+    let identicalPositions = 0;
+    let totalPositions = 0;
+    
+    for (let i = 0; i < seq1.length; i++) {
+      // Skip gaps
+      if (seq1[i] !== '-' && seq2[i] !== '-') {
+        totalPositions++;
+        if (seq1[i] === seq2[i]) {
+          identicalPositions++;
+        }
+      }
+    }
+    
+    const identityPercent = totalPositions > 0 ? 
+      (identicalPositions / totalPositions * 100).toFixed(2) : 0;
+    
+    identities.push({
+      seq1: sequencesArray[0].name,
+      seq2: sequencesArray[1].name,
+      identityPercent: `${identityPercent}%`
+    });
+  }
+  
+  // Find conserved regions
+  let conservedRegions = [];
+  
+  // Extract conservation symbols from alignment
+  const conservationLines = [];
+  for (let i = headerIndex + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    if (line && line.startsWith(' ')) {
+      conservationLines.push(line);
+    }
+  }
+  
+  // Process conservation lines to identify conserved regions
+  if (conservationLines.length > 0) {
+    let conservationString = conservationLines.join('').replace(/\s+/g, '');
+    
+    // Find runs of '*' (fully conserved)
+    let conservedStart = -1;
+    
+    for (let i = 0; i < conservationString.length; i++) {
+      if (conservationString[i] === '*') {
+        if (conservedStart === -1) {
+          conservedStart = i;
+        }
+      } else {
+        if (conservedStart !== -1) {
+          // Found a conserved region
+          const length = i - conservedStart;
+          if (length >= 3) { // Only record regions of at least 3 conserved positions
+            conservedRegions.push({
+              start: conservedStart + 1, // 1-based position
+              end: i,
+              length
+            });
+          }
+          conservedStart = -1;
+        }
+      }
+    }
+    
+    // Check if we ended with a conserved region
+    if (conservedStart !== -1) {
+      const length = conservationString.length - conservedStart;
+      if (length >= 3) {
+        conservedRegions.push({
+          start: conservedStart + 1,
+          end: conservationString.length,
+          length
+        });
+      }
+    }
+  }
+  
+  return {
+    format: "clustal",
+    sequenceCount: sequencesArray.length,
+    alignmentLength,
+    sequences: sequencesArray.map(seq => ({
+      ...seq,
+      sequence: seq.sequence.length > 60 ? seq.sequence.substring(0, 60) + '...' : seq.sequence
+    })),
+    identities,
+    conservedRegions: conservedRegions.slice(0, 5) // Limit to top 5 conserved regions
+  };
+};
