@@ -991,7 +991,7 @@ const CompositionAnalysis = ({ content, data, format, settings }) => {
         .attr("width", x.bandwidth())
         .attr("height", d => height - y(d.value))
         .attr("fill", d => getBarColor(d.label))
-        .on("mouseover", function(event, d) {
+        .on("mouseover", function(d) {
           tooltip.transition()
             .duration(200)
             .style("opacity", .9);
@@ -1256,7 +1256,7 @@ const HydrophobicityPlot = ({ content, data, settings }) => {
         .attr("cy", d => y(d.value))
         .attr("r", 0) // Start with radius 0
         .attr("fill", d => d.value > 0 ? "#ff7f0e" : "#1f77b4")
-        .on("mouseover", function(event, d) {
+        .on("mouseover", function(d) {
           d3.select(this).transition()
             .duration(200)
             .attr("r", 5);
@@ -2110,7 +2110,7 @@ const FeatureMapViewer = ({ content, data, format, settings }) => {
         .attr("stroke", "black")
         .attr("stroke-width", 0.5)
         .attr("rx", 3) // Rounded corners
-        .on("mouseover", function(event, d) {
+        .on("mouseover", function(d) {
           // Highlight feature
           d3.select(this)
             .attr("stroke-width", 2)
@@ -2546,7 +2546,7 @@ const CircularViewer = ({ content, data, settings }) => {
         .attr("fill", getFeatureColor(type))
         .attr("stroke", "white")
         .attr("stroke-width", 0.5)
-        .on("mouseover", function(event, d) {
+        .on("mouseover", function(d) {
           // Highlight
           d3.select(this)
             .attr("stroke", "black")
@@ -3064,7 +3064,7 @@ const ContactMapViewer = ({ content, data, settings }) => {
           return d3.interpolateBlues(intensity);
         })
         .attr("opacity", 0.7)
-        .on("mouseover", function(event, d) {
+        .on("mouseover", function(d) {
           // Highlight
           d3.select(this)
             .attr("r", 4)
@@ -3103,7 +3103,7 @@ const ContactMapViewer = ({ content, data, settings }) => {
           return d3.interpolateBlues(intensity);
         })
         .attr("opacity", 0.7)
-        .on("mouseover", function(event, d) {
+        .on("mouseover", function(d) {
           // Highlight
           d3.select(this)
             .attr("r", 4)
@@ -3926,7 +3926,7 @@ const ConservationViewer = ({ content, data, settings }) => {
           if (d.score >= 0.6) return "#a6611a";
           return "#d7191c";
         })
-        .on("mouseover", function(event, d) {
+        .on("mouseover", function(d) {
           d3.select(this).transition()
             .duration(200)
             .attr("r", 5);
