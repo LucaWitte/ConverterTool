@@ -26,6 +26,7 @@ const BioFormatConverter = () => {
   const [convertedData, setConvertedData] = useState(null);
   const [isConverting, setIsConverting] = useState(false);
   const [error, setError] = useState(null);
+  const [errorDetails, setErrorDetails] = useState(null); // Added for detailed error tracking
   const [showFormatInfo, setShowFormatInfo] = useState(false);
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   const [activeTab, setActiveTab] = useState('upload');
@@ -62,48 +63,56 @@ const BioFormatConverter = () => {
   
   // Initialize effect for browser storage
   useEffect(() => {
-    // Load saved jobs from localStorage if available
-    const savedJobsData = localStorage.getItem('bioConverter_savedJobs');
-    if (savedJobsData) {
-      try {
+    try {
+      // Load saved jobs from localStorage if available
+      const savedJobsData = localStorage.getItem('bioConverter_savedJobs');
+      if (savedJobsData) {
         setSavedJobs(JSON.parse(savedJobsData));
-      } catch (e) {
-        console.error("Error loading saved jobs:", e);
       }
-    }
-    
-    // Load job history
-    const historyData = localStorage.getItem('bioConverter_history');
-    if (historyData) {
-      try {
+      
+      // Load job history
+      const historyData = localStorage.getItem('bioConverter_history');
+      if (historyData) {
         setJobHistory(JSON.parse(historyData));
-      } catch (e) {
-        console.error("Error loading job history:", e);
       }
-    }
-    
-    // Load saved format preferences
-    const savedFormatsData = localStorage.getItem('bioConverter_savedFormats');
-    if (savedFormatsData) {
-      try {
+      
+      // Load saved format preferences
+      const savedFormatsData = localStorage.getItem('bioConverter_savedFormats');
+      if (savedFormatsData) {
         setSavedFormats(JSON.parse(savedFormatsData));
-      } catch (e) {
-        console.error("Error loading saved formats:", e);
       }
+    } catch (e) {
+      console.error("Error loading data from localStorage:", e);
+      setError("Failed to load saved data. Local storage might be corrupted or unavailable.");
+      setErrorDetails({
+        message: e.message,
+        stack: e.stack,
+        source: "localStorage initialization"
+      });
     }
   }, []);
   
   // Save jobs to localStorage when they change
   useEffect(() => {
     if (savedJobs.length > 0) {
-      localStorage.setItem('bioConverter_savedJobs', JSON.stringify(savedJobs));
+      try {
+        localStorage.setItem('bioConverter_savedJobs', JSON.stringify(savedJobs));
+      } catch (e) {
+        console.error("Error saving jobs to localStorage:", e);
+        showNotificationMessage("Failed to save jobs to local storage. Your browser storage might be full or restricted.");
+      }
     }
   }, [savedJobs]);
   
   // Save history to localStorage when it changes
   useEffect(() => {
     if (jobHistory.length > 0) {
-      localStorage.setItem('bioConverter_history', JSON.stringify(jobHistory));
+      try {
+        localStorage.setItem('bioConverter_history', JSON.stringify(jobHistory));
+      } catch (e) {
+        console.error("Error saving history to localStorage:", e);
+        showNotificationMessage("Failed to save history to local storage. Your browser storage might be full or restricted.");
+      }
     }
   }, [jobHistory]);
   
@@ -117,6 +126,7 @@ const BioFormatConverter = () => {
     setPreviewData(null);
     setConvertedData(null);
     setError(null);
+    setErrorDetails(null);
     setProcessingProgress(0);
     setUrlInput('');
     setAnalysisResults(null);
@@ -124,10 +134,40 @@ const BioFormatConverter = () => {
   
   // Handle file upload
   const handleFileUpload = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    
-    processUploadedFile(file);
+    try {
+      const file = event.target.files[0];
+      if (!file) {
+        setError("No file selected");
+        return;
+      }
+      
+      // Check file size
+      if (file.size > 10 * 1024 * 1024) { // 10MB limit
+        setError("File is too large. Maximum file size is 10MB.");
+        return;
+      }
+      
+      // Check file extension for basic validation
+      const fileExtension = file.name.split('.').pop().toLowerCase();
+      const knownExtensions = [].concat(...Object.values(FormatDefinitions).map(format => 
+        format.extensions.map(ext => ext.substring(1).toLowerCase())
+      ));
+      
+      if (!knownExtensions.includes(fileExtension)) {
+        showNotificationMessage(`Warning: File extension .${fileExtension} is not recognized. Will attempt to detect format from content.`);
+      }
+      
+      processUploadedFile(file);
+    } catch (e) {
+      console.error("File upload error:", e);
+      setError(`Failed to upload file: ${e.message}`);
+      setErrorDetails({
+        message: e.message,
+        stack: e.stack,
+        source: "handleFileUpload"
+      });
+      setProcessingProgress(0);
+    }
   };
   
   // Process the uploaded file
@@ -139,47 +179,107 @@ const BioFormatConverter = () => {
     const reader = new FileReader();
     
     reader.onload = (e) => {
-      // Simulate progressive loading for large files
-      setProcessingProgress(50);
-      
-      const content = e.target.result;
-      setFileContent(content);
-      
-      // Add a small delay to simulate processing for large files
-      setTimeout(() => {
-        // Auto-detect format based on file content
-        const detectedFormat = detectFileFormat(content, file.name, FormatDefinitions);
-        setFileType(detectedFormat);
-        setDetectedFormat(detectedFormat);
+      try {
+        // Simulate progressive loading for large files
+        setProcessingProgress(50);
         
-        setProcessingProgress(75);
+        const content = e.target.result;
+        if (!content || content.trim() === '') {
+          throw new Error("File is empty");
+        }
         
+        setFileContent(content);
+        
+        // Add a small delay to simulate processing for large files
         setTimeout(() => {
-          if (detectedFormat) {
-            generatePreview(content, detectedFormat);
-            setProcessingProgress(100);
+          try {
+            // Auto-detect format based on file content
+            const detectedFormat = detectFileFormat(content, file.name, FormatDefinitions);
+            setFileType(detectedFormat);
+            setDetectedFormat(detectedFormat);
             
-            // Add to job history
-            addToHistory({
-              type: 'upload',
-              format: detectedFormat,
-              fileName: file.name,
-              timestamp: new Date().toISOString()
+            setProcessingProgress(75);
+            
+            setTimeout(() => {
+              try {
+                if (detectedFormat) {
+                  generatePreview(content, detectedFormat);
+                  setProcessingProgress(100);
+                  
+                  // Add to job history
+                  addToHistory({
+                    type: 'upload',
+                    format: detectedFormat,
+                    fileName: file.name,
+                    timestamp: new Date().toISOString()
+                  });
+                } else {
+                  setError("Unable to detect file format. Please select manually.");
+                  setProcessingProgress(100);
+                }
+              } catch (e) {
+                console.error("Error in preview generation:", e);
+                setError(`Failed to process file: ${e.message}`);
+                setErrorDetails({
+                  message: e.message,
+                  stack: e.stack,
+                  source: "processUploadedFile - preview generation"
+                });
+                setProcessingProgress(0);
+              }
+            }, 300);
+          } catch (e) {
+            console.error("Error in format detection:", e);
+            setError(`Failed to detect file format: ${e.message}`);
+            setErrorDetails({
+              message: e.message,
+              stack: e.stack,
+              source: "processUploadedFile - format detection"
             });
-          } else {
-            setError("Unable to detect file format. Please select manually.");
-            setProcessingProgress(100);
+            setProcessingProgress(0);
           }
-        }, 300);
-      }, 200);
+        }, 200);
+      } catch (e) {
+        console.error("Error processing file content:", e);
+        setError(`Failed to process file content: ${e.message}`);
+        setErrorDetails({
+          message: e.message,
+          stack: e.stack,
+          source: "processUploadedFile - content processing"
+        });
+        setProcessingProgress(0);
+      }
     };
     
-    reader.onerror = () => {
-      setError("Error reading file. Please try again.");
+    reader.onerror = (e) => {
+      console.error("FileReader error:", e);
+      setError("Error reading file. The file might be corrupted or inaccessible.");
+      setErrorDetails({
+        message: e.target.error?.message || "Unknown FileReader error",
+        code: e.target.error?.code,
+        source: "FileReader.onerror"
+      });
       setProcessingProgress(0);
     };
     
-    reader.readAsText(file);
+    reader.onabort = () => {
+      console.warn("File reading aborted");
+      setError("File reading was aborted.");
+      setProcessingProgress(0);
+    };
+    
+    try {
+      reader.readAsText(file);
+    } catch (e) {
+      console.error("Error initiating file read:", e);
+      setError(`Failed to read file: ${e.message}`);
+      setErrorDetails({
+        message: e.message,
+        stack: e.stack,
+        source: "reader.readAsText"
+      });
+      setProcessingProgress(0);
+    }
   };
   
   // Generate preview data based on file format
@@ -204,44 +304,77 @@ const BioFormatConverter = () => {
           preview = parseClustal(content);
           break;
         default:
-          preview = { error: "Unsupported format" };
+          // Validate the format is supported
+          if (!FormatDefinitions[format]) {
+            throw new Error(`Format '${format}' is not supported for preview generation.`);
+          }
+          preview = { 
+            format,
+            error: "Preview not available for this format",
+            message: `The format ${FormatDefinitions[format].name} is supported for conversion, but detailed preview is not available.`
+          };
+      }
+      
+      // Validate preview results
+      if (!preview || (preview.error && !preview.message)) {
+        throw new Error("Preview generation failed with an unknown error");
       }
       
       setPreviewData(preview);
       setError(null);
+      setErrorDetails(null);
     } catch (err) {
       console.error("Preview generation error:", err);
       setError(`Error parsing file: ${err.message}`);
+      setErrorDetails({
+        message: err.message,
+        stack: err.stack,
+        source: "generatePreview",
+        format: format
+      });
       setPreviewData(null);
     }
   };
   
   // Load an example file
   const loadExampleFile = (formatKey) => {
-    if (!ExampleFiles[formatKey]) return;
-    
-    resetState();
-    setSelectedExample(formatKey);
-    
-    const example = ExampleFiles[formatKey];
-    const file = new File([example.content], example.name, { type: 'text/plain' });
-    
-    setUploadedFile(file);
-    setFileContent(example.content);
-    setFileType(formatKey);
-    setDetectedFormat(formatKey);
-    
-    generatePreview(example.content, formatKey);
-    
-    // Add to job history
-    addToHistory({
-      type: 'example',
-      format: formatKey,
-      fileName: example.name,
-      timestamp: new Date().toISOString()
-    });
-    
-    showNotificationMessage(`Loaded ${example.name} example file`);
+    try {
+      if (!ExampleFiles[formatKey]) {
+        throw new Error(`Example file for format '${formatKey}' is not available.`);
+      }
+      
+      resetState();
+      setSelectedExample(formatKey);
+      
+      const example = ExampleFiles[formatKey];
+      const file = new File([example.content], example.name, { type: 'text/plain' });
+      
+      setUploadedFile(file);
+      setFileContent(example.content);
+      setFileType(formatKey);
+      setDetectedFormat(formatKey);
+      
+      generatePreview(example.content, formatKey);
+      
+      // Add to job history
+      addToHistory({
+        type: 'example',
+        format: formatKey,
+        fileName: example.name,
+        timestamp: new Date().toISOString()
+      });
+      
+      showNotificationMessage(`Loaded ${example.name} example file`);
+    } catch (e) {
+      console.error("Error loading example file:", e);
+      setError(`Failed to load example file: ${e.message}`);
+      setErrorDetails({
+        message: e.message,
+        stack: e.stack,
+        source: "loadExampleFile",
+        formatKey: formatKey
+      });
+    }
   };
   
   // Handle drag events
@@ -262,66 +395,143 @@ const BioFormatConverter = () => {
     e.stopPropagation();
     setDragActive(false);
     
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processUploadedFile(e.dataTransfer.files[0]);
+    try {
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        const file = e.dataTransfer.files[0];
+        
+        // Check file size
+        if (file.size > 10 * 1024 * 1024) { // 10MB limit
+          setError("File is too large. Maximum file size is 10MB.");
+          return;
+        }
+        
+        processUploadedFile(file);
+      } else {
+        throw new Error("No valid files found in drop event");
+      }
+    } catch (err) {
+      console.error("File drop error:", err);
+      setError(`Failed to process dropped file: ${err.message}`);
+      setErrorDetails({
+        message: err.message,
+        stack: err.stack,
+        source: "handleDrop"
+      });
     }
   };
   
   // Add job to history
   const addToHistory = (job) => {
-    setJobHistory(prev => {
-      const newHistory = [
-        { ...job, id: `job_${Date.now()}` },
-        ...prev.slice(0, 19) // Keep only the 20 most recent jobs
-      ];
-      return newHistory;
-    });
+    try {
+      if (!job || !job.type) {
+        throw new Error("Invalid job data for history");
+      }
+      
+      setJobHistory(prev => {
+        const newHistory = [
+          { ...job, id: `job_${Date.now()}` },
+          ...prev.slice(0, 19) // Keep only the 20 most recent jobs
+        ];
+        return newHistory;
+      });
+    } catch (e) {
+      console.error("Error adding to history:", e);
+      // Don't set error state as this is a non-critical operation
+      // Just log the error and continue
+    }
   };
   
   // Save current job
   const saveCurrentJob = () => {
-    if (!uploadedFile || !fileType) {
-      setError("No data to save.");
-      return;
+    try {
+      if (!uploadedFile || !fileType) {
+        setError("No data to save.");
+        return;
+      }
+      
+      if (!fileContent) {
+        throw new Error("File content is empty");
+      }
+      
+      const jobToSave = {
+        id: `saved_${Date.now()}`,
+        name: uploadedFile.name,
+        format: fileType,
+        formatName: FormatDefinitions[fileType]?.name || "Unknown format",
+        content: fileContent,
+        savedAt: new Date().toISOString()
+      };
+      
+      setSavedJobs(prev => [jobToSave, ...prev]);
+      showNotificationMessage(`Saved ${uploadedFile.name}`);
+    } catch (e) {
+      console.error("Error saving job:", e);
+      setError(`Failed to save job: ${e.message}`);
+      setErrorDetails({
+        message: e.message,
+        stack: e.stack,
+        source: "saveCurrentJob"
+      });
     }
-    
-    const jobToSave = {
-      id: `saved_${Date.now()}`,
-      name: uploadedFile.name,
-      format: fileType,
-      formatName: FormatDefinitions[fileType].name,
-      content: fileContent,
-      savedAt: new Date().toISOString()
-    };
-    
-    setSavedJobs(prev => [jobToSave, ...prev]);
-    showNotificationMessage(`Saved ${uploadedFile.name}`);
   };
   
   // Load saved job
   const loadSavedJob = (job) => {
-    resetState();
-    
-    setFileContent(job.content);
-    setFileType(job.format);
-    setDetectedFormat(job.format);
-    generatePreview(job.content, job.format);
-    
-    // Create a file object
-    const file = new File([job.content], job.name, { type: 'text/plain' });
-    setUploadedFile(file);
-    
-    showNotificationMessage(`Loaded saved job: ${job.name}`);
+    try {
+      if (!job || !job.content || !job.format) {
+        throw new Error("Invalid saved job data");
+      }
+      
+      resetState();
+      
+      setFileContent(job.content);
+      setFileType(job.format);
+      setDetectedFormat(job.format);
+      
+      // Validate the content matches the expected format
+      const validationResult = validateFormat(job.content, job.format);
+      if (!validationResult.valid) {
+        showNotificationMessage(`Warning: Saved job may have format issues: ${validationResult.errors[0]}`);
+      }
+      
+      generatePreview(job.content, job.format);
+      
+      // Create a file object
+      const file = new File([job.content], job.name, { type: 'text/plain' });
+      setUploadedFile(file);
+      
+      showNotificationMessage(`Loaded saved job: ${job.name}`);
+    } catch (e) {
+      console.error("Error loading saved job:", e);
+      setError(`Failed to load saved job: ${e.message}`);
+      setErrorDetails({
+        message: e.message,
+        stack: e.stack,
+        source: "loadSavedJob",
+        jobId: job?.id
+      });
+    }
   };
   
   // Delete saved job
   const deleteSavedJob = (jobId) => {
-    setSavedJobs(prev => prev.filter(job => job.id !== jobId));
-    showNotificationMessage("Saved job deleted");
+    try {
+      if (!jobId) {
+        throw new Error("Invalid job ID for deletion");
+      }
+      
+      setSavedJobs(prev => prev.filter(job => job.id !== jobId));
+      showNotificationMessage("Saved job deleted");
+    } catch (e) {
+      console.error("Error deleting saved job:", e);
+      showNotificationMessage(`Error deleting job: ${e.message}`);
+    }
   };
   
   // Show notification
   const showNotificationMessage = (message) => {
+    if (!message) return;
+    
     setNotificationMessage(message);
     setShowNotification(true);
     
@@ -333,109 +543,202 @@ const BioFormatConverter = () => {
   
   // Handle conversion between formats
   const handleConversion = () => {
-    if (!fileContent || !fileType || !targetFormat) {
-      setError("Please select source and target formats");
-      return;
-    }
-    
-    setIsConverting(true);
-    setError(null);
-    setProcessingProgress(10);
-    
-    // Use the convertFile function from the FormatConverters module
-    convertFile(
-      fileContent, 
-      fileType, 
-      targetFormat, 
-      conversionOptions,
-      setProcessingProgress,
-      (result) => {
-        // Success callback
-        setConvertedData(result);
-        setIsConverting(false);
-        setProcessingProgress(100);
-        
-        // Add to job history
-        addToHistory({
-          type: 'conversion',
-          sourceFormat: fileType,
-          targetFormat: targetFormat,
-          fileName: uploadedFile ? uploadedFile.name : 'unknown',
-          timestamp: new Date().toISOString()
-        });
-        
-        showNotificationMessage(`Conversion complete: ${FormatDefinitions[fileType].name} → ${FormatDefinitions[targetFormat].name}`);
-      },
-      (errorMsg) => {
-        // Error callback
-        setError(errorMsg);
-        setIsConverting(false);
-        setProcessingProgress(0);
+    try {
+      if (!fileContent) {
+        throw new Error("No file content to convert");
       }
-    );
+      
+      if (!fileType) {
+        throw new Error("Source format not detected or selected");
+      }
+      
+      if (!targetFormat) {
+        throw new Error("Please select a target format for conversion");
+      }
+      
+      // Validate source format is supported for conversion
+      if (!ConversionMatrix[fileType]) {
+        throw new Error(`Source format '${fileType}' does not support conversion`);
+      }
+      
+      // Validate target format is supported for this source
+      if (!ConversionMatrix[fileType].includes(targetFormat)) {
+        throw new Error(`Conversion from ${fileType} to ${targetFormat} is not supported`);
+      }
+      
+      setIsConverting(true);
+      setError(null);
+      setErrorDetails(null);
+      setProcessingProgress(10);
+      
+      // Use the convertFile function from the FormatConverters module
+      convertFile(
+        fileContent, 
+        fileType, 
+        targetFormat, 
+        conversionOptions,
+        setProcessingProgress,
+        (result) => {
+          // Success callback
+          if (!result || !result.content) {
+            throw new Error("Conversion returned empty or invalid result");
+          }
+          
+          setConvertedData(result);
+          setIsConverting(false);
+          setProcessingProgress(100);
+          
+          // Add to job history
+          addToHistory({
+            type: 'conversion',
+            sourceFormat: fileType,
+            targetFormat: targetFormat,
+            fileName: uploadedFile ? uploadedFile.name : 'unknown',
+            timestamp: new Date().toISOString()
+          });
+          
+          showNotificationMessage(`Conversion complete: ${FormatDefinitions[fileType]?.name || fileType} → ${FormatDefinitions[targetFormat]?.name || targetFormat}`);
+        },
+        (errorMsg) => {
+          // Error callback
+          console.error("Conversion error:", errorMsg);
+          setError(`Conversion failed: ${errorMsg}`);
+          setErrorDetails({
+            message: errorMsg,
+            source: "convertFile error callback"
+          });
+          setIsConverting(false);
+          setProcessingProgress(0);
+        }
+      );
+    } catch (e) {
+      console.error("Conversion initiation error:", e);
+      setError(`Failed to start conversion: ${e.message}`);
+      setErrorDetails({
+        message: e.message,
+        stack: e.stack,
+        source: "handleConversion"
+      });
+      setIsConverting(false);
+      setProcessingProgress(0);
+    }
   };
   
   // Handle analysis
   const handleAnalysis = (toolId) => {
-    if (!fileContent || !fileType) {
-      setError("No data to analyze.");
-      return;
-    }
-    
-    setShowAnalysisOptions(false);
-    setIsConverting(true);
-    setProcessingProgress(10);
-    
-    // Use the performAnalysis function from the AnalysisTools module
-    performAnalysis(
-      toolId,
-      fileContent,
-      fileType,
-      setProcessingProgress,
-      (result) => {
-        // Success callback
-        setAnalysisResults(result);
-        setIsConverting(false);
-        setProcessingProgress(100);
-        
-        // Add to job history
-        addToHistory({
-          type: 'analysis',
-          tool: toolId,
-          format: fileType,
-          fileName: uploadedFile ? uploadedFile.name : 'unknown',
-          timestamp: new Date().toISOString()
-        });
-        
-        showNotificationMessage(`Analysis complete: ${result.title}`);
-      },
-      (errorMsg) => {
-        // Error callback
-        setError(errorMsg);
-        setAnalysisResults(null);
-        setIsConverting(false);
-        setProcessingProgress(0);
+    try {
+      if (!fileContent || !fileType) {
+        throw new Error("No data to analyze");
       }
-    );
+      
+      if (!toolId) {
+        throw new Error("No analysis tool selected");
+      }
+      
+      // Validate tool is supported for this format
+      const availableTools = AnalysisTools[fileType] || [];
+      if (!availableTools.some(tool => tool.id === toolId)) {
+        throw new Error(`Analysis tool '${toolId}' is not supported for format '${fileType}'`);
+      }
+      
+      setShowAnalysisOptions(false);
+      setIsConverting(true);
+      setProcessingProgress(10);
+      
+      // Use the performAnalysis function from the AnalysisTools module
+      performAnalysis(
+        toolId,
+        fileContent,
+        fileType,
+        setProcessingProgress,
+        (result) => {
+          // Success callback
+          if (!result) {
+            throw new Error("Analysis returned empty or invalid result");
+          }
+          
+          setAnalysisResults(result);
+          setIsConverting(false);
+          setProcessingProgress(100);
+          
+          // Add to job history
+          addToHistory({
+            type: 'analysis',
+            tool: toolId,
+            format: fileType,
+            fileName: uploadedFile ? uploadedFile.name : 'unknown',
+            timestamp: new Date().toISOString()
+          });
+          
+          showNotificationMessage(`Analysis complete: ${result.title}`);
+        },
+        (errorMsg) => {
+          // Error callback
+          console.error("Analysis error:", errorMsg);
+          setError(`Analysis failed: ${errorMsg}`);
+          setErrorDetails({
+            message: errorMsg,
+            source: "performAnalysis error callback",
+            toolId: toolId
+          });
+          setAnalysisResults(null);
+          setIsConverting(false);
+          setProcessingProgress(0);
+        }
+      );
+    } catch (e) {
+      console.error("Analysis initiation error:", e);
+      setError(`Failed to start analysis: ${e.message}`);
+      setErrorDetails({
+        message: e.message,
+        stack: e.stack,
+        source: "handleAnalysis",
+        toolId: toolId
+      });
+      setIsConverting(false);
+      setProcessingProgress(0);
+    }
   };
   
   // Download converted file
   const downloadConvertedFile = () => {
-    if (!convertedData) return;
-    
-    const formatKey = convertedData.format;
-    const formatInfo = FormatDefinitions[formatKey];
-    const extension = formatInfo.extensions[0];
-    
-    const blob = new Blob([convertedData.content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `converted_file${extension}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      if (!convertedData || !convertedData.content) {
+        throw new Error("No converted data available for download");
+      }
+      
+      const formatKey = convertedData.format;
+      if (!formatKey || !FormatDefinitions[formatKey]) {
+        throw new Error("Invalid format for converted data");
+      }
+      
+      const formatInfo = FormatDefinitions[formatKey];
+      const extension = formatInfo.extensions[0];
+      
+      const blob = new Blob([convertedData.content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      
+      try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `converted_file${extension}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } finally {
+        // Always revoke the object URL to avoid memory leaks
+        URL.revokeObjectURL(url);
+      }
+    } catch (e) {
+      console.error("Download error:", e);
+      setError(`Failed to download file: ${e.message}`);
+      setErrorDetails({
+        message: e.message,
+        stack: e.stack,
+        source: "downloadConvertedFile"
+      });
+      showNotificationMessage(`Download failed: ${e.message}`);
+    }
   };
   
   // Render format selection options
@@ -1792,6 +2095,49 @@ const loadSearchResult = (result) => {
       setError(`Error loading entry: ${error}`);
       setIsLoadingUrl(false);
     }
+  );
+};
+
+
+  return (
+    <div className="max-w-4xl mx-auto p-4">
+      <div className="bg-white rounded-lg shadow p-6">
+        <h1 className="text-2xl font-bold mb-1">Biology Format Converter</h1>
+        <p className="text-gray-600 mb-4">Convert between common biological data formats</p>
+        
+        {/* Error display with details for advanced users */}
+        {error && (
+          <div className="mt-4 bg-red-100 border border-red-200 text-red-700 p-3 rounded flex items-start">
+            <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium">{error}</p>
+              {errorDetails && (
+                <details className="mt-1 text-xs">
+                  <summary className="cursor-pointer">Technical details</summary>
+                  <p className="mt-1">Source: {errorDetails.source || 'Unknown'}</p>
+                  {errorDetails.message && <p>Message: {errorDetails.message}</p>}
+                  {errorDetails.stack && (
+                    <pre className="mt-1 whitespace-pre-wrap overflow-x-auto max-h-40">
+                      {errorDetails.stack}
+                    </pre>
+                  )}
+                </details>
+              )}
+            </div>
+          </div>
+        )}
+        
+        {/* Rest of the UI components */}
+        {/* ... */}
+        
+        {/* Notification */}
+        {showNotification && (
+          <div className="fixed bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded-md shadow-lg">
+            {notificationMessage}
+          </div>
+        )}
+      </div>
+    </div>
   );
 };
 
