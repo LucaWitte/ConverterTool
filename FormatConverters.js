@@ -1,4 +1,4 @@
-// FormatConverters.js - Handles conversions between different biological data formats
+stoc// FormatConverters.js - Handles conversions between different biological data formats
 
 /**
  * Main function to convert a file from one format to another
@@ -2157,28 +2157,21 @@ export const stockholmToFasta = (content, options) => {
  * @returns {object} The conversion result
  */
 export const stockholmToClustal = (content, options) => {
+  const sequences = [];
+  let conservation = '';
+  
   const lines = content.split('\n');
-  const sequences = {};
-  let consensus = '';
   
-  // Check if it's a valid Stockholm file
-  if (!lines.some(line => line.includes('STOCKHOLM'))) {
-    throw new Error("Not a valid Stockholm format");
-  }
+  const seqMap = {};
   
-  // Parse sequences and consensus
   for (const line of lines) {
-    if (!line.trim() || line.startsWith('//')) {
-      continue;
-    }
-    
     if (line.startsWith('#=GC')) {
-      // Consensus line
+      // Conservation line
       const parts = line.split(/\s+/);
       if (parts.length >= 3 && parts[1] === 'cons') {
-        consensus = parts[2];
+        conservation += parts[2];
       }
-    } else if (!line.startsWith('#')) {
+    } else if (!line.startsWith('#') && !line.startsWith('//') && line.trim()) {
       // Sequence line
       const parts = line.trim().split(/\s+/);
       
@@ -2186,6 +2179,61 @@ export const stockholmToClustal = (content, options) => {
         const seqName = parts[0];
         const seqSegment = parts[1];
         
-        if (!sequences[seqName]) {
-          sequences[seqName] = '';
+        if (!seqMap[seqName]) {
+          seqMap[seqName] = '';
         }
+        
+        seqMap[seqName] += seqSegment;
+      }
+    }
+  }
+  
+  // Convert to array
+  for (const [name, sequence] of Object.entries(seqMap)) {
+    sequences.push({
+      name,
+      sequence,
+      length: sequence.length
+    });
+  }
+  
+  // Create CLUSTAL output
+  let clustalContent = 'CLUSTAL W (1.83) multiple sequence alignment\n\n';
+  
+  // Find max sequence name length for padding
+  const maxNameLength = Math.max(...Object.keys(seqMap).map(name => name.length));
+  
+  // Format sequences in blocks of 60 characters
+  const lineLength = 60;
+  const maxLength = Math.max(...Object.values(seqMap).map(seq => seq.length));
+  
+  for (let i = 0; i < maxLength; i += lineLength) {
+    // Add a blank line between blocks
+    if (i > 0) {
+      clustalContent += '\n';
+    }
+    
+    // Add each sequence line
+    for (const [name, sequence] of Object.entries(seqMap)) {
+      const segment = sequence.substring(i, i + lineLength);
+      if (segment.length > 0) {
+        clustalContent += `${name.padEnd(maxNameLength)} ${segment}\n`;
+      }
+    }
+    
+    // Add conservation line if available
+    if (conservation) {
+      const consSegment = conservation.substring(i, i + lineLength);
+      if (consSegment.length > 0) {
+        clustalContent += ' '.repeat(maxNameLength) + ' ' + consSegment + '\n';
+      }
+    }
+  }
+  
+  return {
+    content: clustalContent,
+    sequenceCount: Object.keys(seqMap).length,
+    totalLength: maxLength,
+    note: 'Converted from Stockholm format to CLUSTAL format. Conservation information was preserved where available.'
+  };
+};
