@@ -1634,4 +1634,165 @@ export const ConversionOptions = ({ options, setOptions, sourceFormat, targetFor
   );
 };
 
+
+// Process URL input
+const processUrlInput = (url) => {
+  if (!url.trim()) {
+    setError("Please enter a URL");
+    return;
+  }
+  
+  setIsLoadingUrl(true);
+  setError(null);
+  
+  // Detect if it's a database URL
+  const dbInfo = getDatabaseFromUrl(url);
+  
+  fetch(url)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+      return response.text();
+    })
+    .then(content => {
+      // Auto-detect format
+      const detectedFormat = dbInfo.database ? 
+        DatabaseUrlToFormat[dbInfo.database] || detectFormatByContent(content) : 
+        detectFormatByContent(content);
+      
+      if (!detectedFormat) {
+        throw new Error("Could not detect file format");
+      }
+      
+      // Create file object
+      const fileName = url.split('/').pop() || 'downloaded_file';
+      const file = new File([content], fileName, { type: 'text/plain' });
+      
+      setUploadedFile(file);
+      setFileContent(content);
+      setFileType(detectedFormat);
+      setDetectedFormat(detectedFormat);
+      generatePreview(content, detectedFormat);
+      
+      // Add to job history
+      addToHistory({
+        type: 'url',
+        format: detectedFormat,
+        url: url,
+        database: dbInfo.database || 'unknown',
+        timestamp: new Date().toISOString()
+      });
+      
+      showNotificationMessage(`Loaded file from URL: ${fileName}`);
+      setIsLoadingUrl(false);
+      setActiveTab('upload'); // Switch to upload tab to show preview
+    })
+    .catch(err => {
+      setError(`Error loading URL: ${err.message}`);
+      setIsLoadingUrl(false);
+    });
+};
+
+// Search database
+const performDatabaseSearch = (database, subDatabase, searchTerm) => {
+  if (!searchTerm.trim()) {
+    setError("Please enter a search term");
+    return;
+  }
+  
+  setIsSearching(true);
+  setError(null);
+  setSearchResults([]);
+  
+  // Generate search URL
+  const searchUrl = generateSearchUrl(database, subDatabase, searchTerm);
+  
+  if (!searchUrl) {
+    setError("Could not generate search URL");
+    setIsSearching(false);
+    return;
+  }
+  
+  // Perform search
+  searchDatabase(
+    database,
+    subDatabase,
+    searchTerm,
+    (results) => {
+      setSearchResults(results.results || []);
+      setIsSearching(false);
+      
+      if (results.results.length === 0) {
+        setError(`No results found for "${searchTerm}"`);
+      }
+    },
+    (error) => {
+      setError(`Search error: ${error}`);
+      setIsSearching(false);
+    }
+  );
+};
+
+// Load search result
+const loadSearchResult = (result) => {
+  setIsLoadingUrl(true);
+  setError(null);
+  
+  const database = result.database;
+  const subDatabase = result.subDatabase;
+  const accessionId = result.id;
+  
+  // Generate URL for fetching the entry
+  const fetchUrl = generateDatabaseUrl(database, subDatabase, accessionId);
+  
+  if (!fetchUrl) {
+    setError("Could not generate URL for the selected entry");
+    setIsLoadingUrl(false);
+    return;
+  }
+  
+  // Fetch the entry
+  fetchFromUrl(
+    fetchUrl,
+    (result) => {
+      const content = result.content;
+      const format = result.format;
+      
+      if (!content || !format) {
+        setError("Could not retrieve data from the selected entry");
+        setIsLoadingUrl(false);
+        return;
+      }
+      
+      // Create file object
+      const fileName = `${accessionId}.${format}`;
+      const file = new File([content], fileName, { type: 'text/plain' });
+      
+      setUploadedFile(file);
+      setFileContent(content);
+      setFileType(format);
+      setDetectedFormat(format);
+      generatePreview(content, format);
+      
+      // Add to job history
+      addToHistory({
+        type: 'search_result',
+        format: format,
+        id: accessionId,
+        database: database,
+        timestamp: new Date().toISOString()
+      });
+      
+      showNotificationMessage(`Loaded ${accessionId} from ${database}`);
+      setIsLoadingUrl(false);
+      setActiveTab('upload'); // Switch to upload tab to show preview
+    },
+    (error) => {
+      setError(`Error loading entry: ${error}`);
+      setIsLoadingUrl(false);
+    }
+  );
+};
+
 export default BioFormatConverter;
