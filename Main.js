@@ -1,22 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { AlertCircle, Download, FileText, Upload, Check, ChevronDown, RefreshCw, FileCode, List, Settings, HelpCircle, Globe, Search, Database, Bookmark, Clock, BarChart2, Scissors, Zap, Layers, Save, Star } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { AlertCircle, RefreshCw, Settings, BarChart2, Check, Download, Upload, FileText, Save, Bookmark, Clock, HelpCircle, ChevronDown, Search, Globe, List, FileCode, Zap } from 'lucide-react';
+import { FormatDefinitions, FormatCategories, ConversionMatrix, AnalysisTools, ExampleFiles, DatabaseResources } from './constants';
+import { detectFileFormat, generatePreview, convertFile, performAnalysis, searchDatabase, fetchFromUrl, generateDatabaseUrl, generateSearchUrl, getDatabaseFromUrl, detectFormatByContent } from './utils';
 
-// Import modules
-import { FormatDefinitions, FormatCategories, ConversionMatrix } from './FormatDefinitions';
-import { DatabaseResources, DatabaseUrlToFormat, ExampleFiles } from './DatabaseResources';
-import { detectFileFormat, validateFormat } from './FormatDetection';
-import { parseFasta, parseFastq, parseGenBank, parsePDB, parseClustal } from './FormatParsers';
-import { convertFile, performConversion, formatSequenceForFasta } from './FormatConverters';
-import { performAnalysis, AnalysisTools } from './AnalysisTools';
-import { FileDropZone } from './UIComponents';
-import { Notification } from './UIComponents';
-import { TabNavigation } from './UIComponents';
-import { UrlLoader } from './UrlLoader';
-import { DatabaseSearch } from './DatabaseSearch';
-import { ConversionOptions } from './ConversionOptions';
+// File size constants
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024; // 5MB
+const CHUNK_SIZE = 1 * 1024 * 1024; // 1MB
 
 const BioFormatConverter = () => {
-  // State management
+  // State variables (combined from both versions)
   const [uploadedFile, setUploadedFile] = useState(null);
   const [fileContent, setFileContent] = useState('');
   const [fileType, setFileType] = useState('');
@@ -24,59 +17,43 @@ const BioFormatConverter = () => {
   const [targetFormat, setTargetFormat] = useState('');
   const [previewData, setPreviewData] = useState(null);
   const [convertedData, setConvertedData] = useState(null);
-  const [isConverting, setIsConverting] = useState(false);
   const [error, setError] = useState(null);
-  const [errorDetails, setErrorDetails] = useState(null); // Added for detailed error tracking
-  const [showFormatInfo, setShowFormatInfo] = useState(false);
-  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
-  const [activeTab, setActiveTab] = useState('upload');
-  const [urlInput, setUrlInput] = useState('');
-  const [isLoadingUrl, setIsLoadingUrl] = useState(false);
-  const [databaseSearch, setDatabaseSearch] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [savedJobs, setSavedJobs] = useState([]);
-  const [analysisResults, setAnalysisResults] = useState(null);
-  const [showAnalysisOptions, setShowAnalysisOptions] = useState(false);
-  const [conversionOptions, setConversionOptions] = useState({
-    preserveHeaders: true,
-    formatSequence: true,
-    validateOutput: true,
-    lineLength: 60,
-    includeQuality: true,
-    addSourceComment: true,
-    normalizeSequence: false,
-    translateToProtein: false,
-    removeGaps: false,
-    includeFeatures: true
-  });
+  const [errorDetails, setErrorDetails] = useState(null);
   const [processingProgress, setProcessingProgress] = useState(0);
-  const [showHelpPanel, setShowHelpPanel] = useState(false);
-  const [selectedExample, setSelectedExample] = useState(null);
+  const [urlInput, setUrlInput] = useState('');
+  const [analysisResults, setAnalysisResults] = useState(null);
+  const [isProcessingLargeFile, setIsProcessingLargeFile] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  const [conversionOptions, setConversionOptions] = useState({});
+  const [showAnalysisOptions, setShowAnalysisOptions] = useState(false);
+  const [activeTab, setActiveTab] = useState('upload');
   const [dragActive, setDragActive] = useState(false);
-  const [savedFormats, setSavedFormats] = useState([]);
   const [showNotification, setShowNotification] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState('');
+  const [savedJobs, setSavedJobs] = useState([]);
   const [jobHistory, setJobHistory] = useState([]);
-  
+  const [savedFormats, setSavedFormats] = useState([]);
+  const [isLoadingUrl, setIsLoadingUrl] = useState(false);
+  const [databaseSearch, setDatabaseSearch] = useState({ database: '', subDatabase: '', searchTerm: '' });
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [selectedExample, setSelectedExample] = useState(null);
+  const [showFormatInfo, setShowFormatInfo] = useState(false);
+
   const fileInputRef = useRef(null);
-  
-  // Initialize effect for browser storage
+
+  // LocalStorage initialization and saving (from Version 1)
   useEffect(() => {
     try {
-      // Load saved jobs from localStorage if available
       const savedJobsData = localStorage.getItem('bioConverter_savedJobs');
       if (savedJobsData) {
         setSavedJobs(JSON.parse(savedJobsData));
       }
-      
-      // Load job history
       const historyData = localStorage.getItem('bioConverter_history');
       if (historyData) {
         setJobHistory(JSON.parse(historyData));
       }
-      
-      // Load saved format preferences
       const savedFormatsData = localStorage.getItem('bioConverter_savedFormats');
       if (savedFormatsData) {
         setSavedFormats(JSON.parse(savedFormatsData));
@@ -91,8 +68,7 @@ const BioFormatConverter = () => {
       });
     }
   }, []);
-  
-  // Save jobs to localStorage when they change
+
   useEffect(() => {
     if (savedJobs.length > 0) {
       try {
@@ -103,8 +79,7 @@ const BioFormatConverter = () => {
       }
     }
   }, [savedJobs]);
-  
-  // Save history to localStorage when it changes
+
   useEffect(() => {
     if (jobHistory.length > 0) {
       try {
@@ -115,8 +90,8 @@ const BioFormatConverter = () => {
       }
     }
   }, [jobHistory]);
-  
-  // Reset application state
+
+  // Utility functions
   const resetState = () => {
     setUploadedFile(null);
     setFileContent('');
@@ -130,9 +105,49 @@ const BioFormatConverter = () => {
     setProcessingProgress(0);
     setUrlInput('');
     setAnalysisResults(null);
+    setIsProcessingLargeFile(false);
   };
-  
-  // Handle file upload
+
+  const showNotificationMessage = (msg) => {
+    setNotificationMessage(msg);
+    setShowNotification(true);
+    setTimeout(() => setShowNotification(false), 3000);
+  };
+
+  const addToHistory = (entry) => {
+    setJobHistory(prev => [...prev, { ...entry, id: Date.now() }]);
+  };
+
+  const saveCurrentJob = () => {
+    if (!uploadedFile || !fileContent || !fileType) return;
+    const job = {
+      id: Date.now(),
+      name: uploadedFile.name,
+      format: fileType,
+      content: fileContent,
+      formatName: FormatDefinitions[fileType]?.name || fileType,
+      savedAt: new Date().toISOString()
+    };
+    setSavedJobs(prev => [...prev, job]);
+    showNotificationMessage(`Saved job: ${uploadedFile.name}`);
+  };
+
+  const loadSavedJob = (job) => {
+    setUploadedFile(new File([job.content], job.name, { type: 'text/plain' }));
+    setFileContent(job.content);
+    setFileType(job.format);
+    setDetectedFormat(job.format);
+    generatePreview(job.content, job.format);
+    setActiveTab('upload');
+    showNotificationMessage(`Loaded saved job: ${job.name}`);
+  };
+
+  const deleteSavedJob = (id) => {
+    setSavedJobs(prev => prev.filter(job => job.id !== id));
+    showNotificationMessage("Job deleted");
+  };
+
+  // File handling functions (from Version 1 with error handling from Version 2)
   const handleFileUpload = (event) => {
     try {
       const file = event.target.files[0];
@@ -140,24 +155,23 @@ const BioFormatConverter = () => {
         setError("No file selected");
         return;
       }
-      
-      // Check file size
-      if (file.size > 10 * 1024 * 1024) { // 10MB limit
-        setError("File is too large. Maximum file size is 10MB.");
+      if (file.size > MAX_FILE_SIZE) {
+        setError(`File is too large. Maximum file size is ${(MAX_FILE_SIZE / (1024 * 1024)).toFixed(0)}MB.`);
         return;
       }
-      
-      // Check file extension for basic validation
       const fileExtension = file.name.split('.').pop().toLowerCase();
       const knownExtensions = [].concat(...Object.values(FormatDefinitions).map(format => 
         format.extensions.map(ext => ext.substring(1).toLowerCase())
       ));
-      
       if (!knownExtensions.includes(fileExtension)) {
         showNotificationMessage(`Warning: File extension .${fileExtension} is not recognized. Will attempt to detect format from content.`);
       }
-      
-      processUploadedFile(file);
+      if (file.size > LARGE_FILE_THRESHOLD) {
+        showNotificationMessage(`Large file detected (${(file.size / (1024 * 1024)).toFixed(1)}MB). Using optimized processing.`);
+        processLargeFile(file);
+      } else {
+        processUploadedFile(file);
+      }
     } catch (e) {
       console.error("File upload error:", e);
       setError(`Failed to upload file: ${e.message}`);
@@ -169,44 +183,122 @@ const BioFormatConverter = () => {
       setProcessingProgress(0);
     }
   };
-  
-  // Process the uploaded file
+
+  const processLargeFile = (file) => {
+    resetState();
+    setUploadedFile(file);
+    setIsProcessingLargeFile(true);
+    const fileSize = file.size;
+    let offset = 0;
+    let accumulatedContent = '';
+    
+    const processChunk = () => {
+      try {
+        const blob = file.slice(offset, Math.min(offset + CHUNK_SIZE, fileSize));
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const chunk = e.target.result;
+            accumulatedContent += chunk;
+            offset += blob.size;
+            const progress = Math.min(80, Math.round((offset / fileSize) * 80));
+            setProcessingProgress(progress);
+            if (offset < fileSize) {
+              setTimeout(processChunk, 0);
+            } else {
+              finishLargeFileProcessing(accumulatedContent, file);
+            }
+          } catch (e) {
+            handleChunkError(e);
+          }
+        };
+        reader.onerror = (e) => {
+          handleChunkError({
+            message: "Error reading file chunk",
+            details: e.target.error
+          });
+        };
+        reader.readAsText(blob);
+      } catch (e) {
+        handleChunkError(e);
+      }
+    };
+    
+    const handleChunkError = (e) => {
+      console.error("Chunk processing error:", e);
+      setError(`Error processing large file: ${e.message || "Unknown error"}`);
+      setErrorDetails({
+        message: e.message,
+        stack: e.stack,
+        source: "processLargeFile - chunk processing",
+        offset: offset,
+        fileSize: fileSize
+      });
+      setProcessingProgress(0);
+      setIsProcessingLargeFile(false);
+    };
+    
+    processChunk();
+  };
+
+  const finishLargeFileProcessing = (content, file) => {
+    try {
+      setFileContent(content);
+      setProcessingProgress(85);
+      const detectedFormat = detectFileFormat(content, file.name, FormatDefinitions);
+      setFileType(detectedFormat);
+      setDetectedFormat(detectedFormat);
+      setProcessingProgress(90);
+      if (detectedFormat) {
+        generatePreview(content, detectedFormat);
+        setProcessingProgress(100);
+        addToHistory({
+          type: 'upload',
+          format: detectedFormat,
+          fileName: file.name,
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        setError("Unable to detect file format. Please select manually.");
+        setProcessingProgress(100);
+      }
+      setIsProcessingLargeFile(false);
+    } catch (e) {
+      console.error("Error finalizing large file processing:", e);
+      setError(`Failed to process complete file: ${e.message}`);
+      setErrorDetails({
+        message: e.message,
+        stack: e.stack,
+        source: "finishLargeFileProcessing"
+      });
+      setProcessingProgress(0);
+      setIsProcessingLargeFile(false);
+    }
+  };
+
   const processUploadedFile = (file) => {
     resetState();
     setUploadedFile(file);
-    
-    // Start reading and processing the file
     const reader = new FileReader();
-    
     reader.onload = (e) => {
       try {
-        // Simulate progressive loading for large files
         setProcessingProgress(50);
-        
         const content = e.target.result;
         if (!content || content.trim() === '') {
           throw new Error("File is empty");
         }
-        
         setFileContent(content);
-        
-        // Add a small delay to simulate processing for large files
         setTimeout(() => {
           try {
-            // Auto-detect format based on file content
             const detectedFormat = detectFileFormat(content, file.name, FormatDefinitions);
             setFileType(detectedFormat);
             setDetectedFormat(detectedFormat);
-            
             setProcessingProgress(75);
-            
             setTimeout(() => {
               try {
                 if (detectedFormat) {
                   generatePreview(content, detectedFormat);
                   setProcessingProgress(100);
-                  
-                  // Add to job history
                   addToHistory({
                     type: 'upload',
                     format: detectedFormat,
@@ -250,7 +342,6 @@ const BioFormatConverter = () => {
         setProcessingProgress(0);
       }
     };
-    
     reader.onerror = (e) => {
       console.error("FileReader error:", e);
       setError("Error reading file. The file might be corrupted or inaccessible.");
@@ -261,13 +352,11 @@ const BioFormatConverter = () => {
       });
       setProcessingProgress(0);
     };
-    
     reader.onabort = () => {
       console.warn("File reading aborted");
       setError("File reading was aborted.");
       setProcessingProgress(0);
     };
-    
     try {
       reader.readAsText(file);
     } catch (e) {
@@ -281,131 +370,34 @@ const BioFormatConverter = () => {
       setProcessingProgress(0);
     }
   };
-  
-  // Generate preview data based on file format
-  const generatePreview = (content, format) => {
-    try {
-      let preview;
-      
-      switch (format) {
-        case "fasta":
-          preview = parseFasta(content);
-          break;
-        case "fastq":
-          preview = parseFastq(content);
-          break;
-        case "genbank":
-          preview = parseGenBank(content);
-          break;
-        case "pdb":
-          preview = parsePDB(content);
-          break;
-        case "clustal":
-          preview = parseClustal(content);
-          break;
-        default:
-          // Validate the format is supported
-          if (!FormatDefinitions[format]) {
-            throw new Error(`Format '${format}' is not supported for preview generation.`);
-          }
-          preview = { 
-            format,
-            error: "Preview not available for this format",
-            message: `The format ${FormatDefinitions[format].name} is supported for conversion, but detailed preview is not available.`
-          };
-      }
-      
-      // Validate preview results
-      if (!preview || (preview.error && !preview.message)) {
-        throw new Error("Preview generation failed with an unknown error");
-      }
-      
-      setPreviewData(preview);
-      setError(null);
-      setErrorDetails(null);
-    } catch (err) {
-      console.error("Preview generation error:", err);
-      setError(`Error parsing file: ${err.message}`);
-      setErrorDetails({
-        message: err.message,
-        stack: err.stack,
-        source: "generatePreview",
-        format: format
-      });
-      setPreviewData(null);
-    }
-  };
-  
-  // Load an example file
-  const loadExampleFile = (formatKey) => {
-    try {
-      if (!ExampleFiles[formatKey]) {
-        throw new Error(`Example file for format '${formatKey}' is not available.`);
-      }
-      
-      resetState();
-      setSelectedExample(formatKey);
-      
-      const example = ExampleFiles[formatKey];
-      const file = new File([example.content], example.name, { type: 'text/plain' });
-      
-      setUploadedFile(file);
-      setFileContent(example.content);
-      setFileType(formatKey);
-      setDetectedFormat(formatKey);
-      
-      generatePreview(example.content, formatKey);
-      
-      // Add to job history
-      addToHistory({
-        type: 'example',
-        format: formatKey,
-        fileName: example.name,
-        timestamp: new Date().toISOString()
-      });
-      
-      showNotificationMessage(`Loaded ${example.name} example file`);
-    } catch (e) {
-      console.error("Error loading example file:", e);
-      setError(`Failed to load example file: ${e.message}`);
-      setErrorDetails({
-        message: e.message,
-        stack: e.stack,
-        source: "loadExampleFile",
-        formatKey: formatKey
-      });
-    }
-  };
-  
-  // Handle drag events
+
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    
     if (e.type === "dragenter" || e.type === "dragover") {
       setDragActive(true);
     } else if (e.type === "dragleave") {
       setDragActive(false);
     }
   };
-  
-  // Handle drop event
+
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    
     try {
       if (e.dataTransfer.files && e.dataTransfer.files[0]) {
         const file = e.dataTransfer.files[0];
-        
-        // Check file size
-        if (file.size > 10 * 1024 * 1024) { // 10MB limit
-          setError("File is too large. Maximum file size is 10MB.");
+        if (file.size > MAX_FILE_SIZE) {
+          setError(`File is too large. Maximum file size is ${(MAX_FILE_SIZE / (1024 * 1024)).toFixed(0)}MB.`);
           return;
         }
-        
-        processUploadedFile(file);
+        if (file.size > LARGE_FILE_THRESHOLD) {
+          showNotificationMessage(`Large file detected (${(file.size / (1024 * 1024)).toFixed(1)}MB). Using optimized processing.`);
+          processLargeFile(file);
+        } else {
+          processUploadedFile(file);
+        }
       } else {
         throw new Error("No valid files found in drop event");
       }
@@ -419,176 +411,46 @@ const BioFormatConverter = () => {
       });
     }
   };
-  
-  // Add job to history
-  const addToHistory = (job) => {
-    try {
-      if (!job || !job.type) {
-        throw new Error("Invalid job data for history");
-      }
-      
-      setJobHistory(prev => {
-        const newHistory = [
-          { ...job, id: `job_${Date.now()}` },
-          ...prev.slice(0, 19) // Keep only the 20 most recent jobs
-        ];
-        return newHistory;
-      });
-    } catch (e) {
-      console.error("Error adding to history:", e);
-      // Don't set error state as this is a non-critical operation
-      // Just log the error and continue
-    }
-  };
-  
-  // Save current job
-  const saveCurrentJob = () => {
-    try {
-      if (!uploadedFile || !fileType) {
-        setError("No data to save.");
-        return;
-      }
-      
-      if (!fileContent) {
-        throw new Error("File content is empty");
-      }
-      
-      const jobToSave = {
-        id: `saved_${Date.now()}`,
-        name: uploadedFile.name,
-        format: fileType,
-        formatName: FormatDefinitions[fileType]?.name || "Unknown format",
-        content: fileContent,
-        savedAt: new Date().toISOString()
-      };
-      
-      setSavedJobs(prev => [jobToSave, ...prev]);
-      showNotificationMessage(`Saved ${uploadedFile.name}`);
-    } catch (e) {
-      console.error("Error saving job:", e);
-      setError(`Failed to save job: ${e.message}`);
-      setErrorDetails({
-        message: e.message,
-        stack: e.stack,
-        source: "saveCurrentJob"
-      });
-    }
-  };
-  
-  // Load saved job
-  const loadSavedJob = (job) => {
-    try {
-      if (!job || !job.content || !job.format) {
-        throw new Error("Invalid saved job data");
-      }
-      
-      resetState();
-      
-      setFileContent(job.content);
-      setFileType(job.format);
-      setDetectedFormat(job.format);
-      
-      // Validate the content matches the expected format
-      const validationResult = validateFormat(job.content, job.format);
-      if (!validationResult.valid) {
-        showNotificationMessage(`Warning: Saved job may have format issues: ${validationResult.errors[0]}`);
-      }
-      
-      generatePreview(job.content, job.format);
-      
-      // Create a file object
-      const file = new File([job.content], job.name, { type: 'text/plain' });
-      setUploadedFile(file);
-      
-      showNotificationMessage(`Loaded saved job: ${job.name}`);
-    } catch (e) {
-      console.error("Error loading saved job:", e);
-      setError(`Failed to load saved job: ${e.message}`);
-      setErrorDetails({
-        message: e.message,
-        stack: e.stack,
-        source: "loadSavedJob",
-        jobId: job?.id
-      });
-    }
-  };
-  
-  // Delete saved job
-  const deleteSavedJob = (jobId) => {
-    try {
-      if (!jobId) {
-        throw new Error("Invalid job ID for deletion");
-      }
-      
-      setSavedJobs(prev => prev.filter(job => job.id !== jobId));
-      showNotificationMessage("Saved job deleted");
-    } catch (e) {
-      console.error("Error deleting saved job:", e);
-      showNotificationMessage(`Error deleting job: ${e.message}`);
-    }
-  };
-  
-  // Show notification
-  const showNotificationMessage = (message) => {
-    if (!message) return;
-    
-    setNotificationMessage(message);
-    setShowNotification(true);
-    
-    // Hide after 3 seconds
-    setTimeout(() => {
-      setShowNotification(false);
-    }, 3000);
-  };
-  
-  // Handle conversion between formats
+
+  // Conversion and Analysis (from Version 2 with large file optimization from Version 1)
   const handleConversion = () => {
     try {
       if (!fileContent) {
         throw new Error("No file content to convert");
       }
-      
       if (!fileType) {
         throw new Error("Source format not detected or selected");
       }
-      
       if (!targetFormat) {
         throw new Error("Please select a target format for conversion");
       }
-      
-      // Validate source format is supported for conversion
       if (!ConversionMatrix[fileType]) {
         throw new Error(`Source format '${fileType}' does not support conversion`);
       }
-      
-      // Validate target format is supported for this source
       if (!ConversionMatrix[fileType].includes(targetFormat)) {
         throw new Error(`Conversion from ${fileType} to ${targetFormat} is not supported`);
       }
-      
       setIsConverting(true);
       setError(null);
       setErrorDetails(null);
       setProcessingProgress(10);
-      
-      // Use the convertFile function from the FormatConverters module
+      const isLargeContent = fileContent.length > 1000000;
+      if (isLargeContent) {
+        showNotificationMessage("Large file detected. Using optimized conversion process.");
+      }
       convertFile(
-        fileContent, 
-        fileType, 
-        targetFormat, 
+        fileContent,
+        fileType,
+        targetFormat,
         conversionOptions,
         setProcessingProgress,
         (result) => {
-          // Success callback
           if (!result || !result.content) {
             throw new Error("Conversion returned empty or invalid result");
           }
-          
           setConvertedData(result);
           setIsConverting(false);
           setProcessingProgress(100);
-          
-          // Add to job history
           addToHistory({
             type: 'conversion',
             sourceFormat: fileType,
@@ -596,11 +458,9 @@ const BioFormatConverter = () => {
             fileName: uploadedFile ? uploadedFile.name : 'unknown',
             timestamp: new Date().toISOString()
           });
-          
           showNotificationMessage(`Conversion complete: ${FormatDefinitions[fileType]?.name || fileType} → ${FormatDefinitions[targetFormat]?.name || targetFormat}`);
         },
         (errorMsg) => {
-          // Error callback
           console.error("Conversion error:", errorMsg);
           setError(`Conversion failed: ${errorMsg}`);
           setErrorDetails({
@@ -623,45 +483,34 @@ const BioFormatConverter = () => {
       setProcessingProgress(0);
     }
   };
-  
-  // Handle analysis
+
   const handleAnalysis = (toolId) => {
     try {
       if (!fileContent || !fileType) {
         throw new Error("No data to analyze");
       }
-      
       if (!toolId) {
         throw new Error("No analysis tool selected");
       }
-      
-      // Validate tool is supported for this format
       const availableTools = AnalysisTools[fileType] || [];
       if (!availableTools.some(tool => tool.id === toolId)) {
         throw new Error(`Analysis tool '${toolId}' is not supported for format '${fileType}'`);
       }
-      
       setShowAnalysisOptions(false);
       setIsConverting(true);
       setProcessingProgress(10);
-      
-      // Use the performAnalysis function from the AnalysisTools module
       performAnalysis(
         toolId,
         fileContent,
         fileType,
         setProcessingProgress,
         (result) => {
-          // Success callback
           if (!result) {
             throw new Error("Analysis returned empty or invalid result");
           }
-          
           setAnalysisResults(result);
           setIsConverting(false);
           setProcessingProgress(100);
-          
-          // Add to job history
           addToHistory({
             type: 'analysis',
             tool: toolId,
@@ -669,11 +518,9 @@ const BioFormatConverter = () => {
             fileName: uploadedFile ? uploadedFile.name : 'unknown',
             timestamp: new Date().toISOString()
           });
-          
           showNotificationMessage(`Analysis complete: ${result.title}`);
         },
         (errorMsg) => {
-          // Error callback
           console.error("Analysis error:", errorMsg);
           setError(`Analysis failed: ${errorMsg}`);
           setErrorDetails({
@@ -699,25 +546,20 @@ const BioFormatConverter = () => {
       setProcessingProgress(0);
     }
   };
-  
-  // Download converted file
+
   const downloadConvertedFile = () => {
     try {
       if (!convertedData || !convertedData.content) {
         throw new Error("No converted data available for download");
       }
-      
       const formatKey = convertedData.format;
       if (!formatKey || !FormatDefinitions[formatKey]) {
         throw new Error("Invalid format for converted data");
       }
-      
       const formatInfo = FormatDefinitions[formatKey];
       const extension = formatInfo.extensions[0];
-      
       const blob = new Blob([convertedData.content], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
-      
       try {
         const a = document.createElement('a');
         a.href = url;
@@ -726,7 +568,6 @@ const BioFormatConverter = () => {
         a.click();
         document.body.removeChild(a);
       } finally {
-        // Always revoke the object URL to avoid memory leaks
         URL.revokeObjectURL(url);
       }
     } catch (e) {
@@ -740,13 +581,177 @@ const BioFormatConverter = () => {
       showNotificationMessage(`Download failed: ${e.message}`);
     }
   };
-  
-  // Render format selection options
+
+  // URL and Database handling (from Version 2)
+  const processUrlInput = (url) => {
+    if (!url.trim()) {
+      setError("Please enter a URL");
+      return;
+    }
+    setIsLoadingUrl(true);
+    setError(null);
+    const dbInfo = getDatabaseFromUrl(url);
+    fetch(url)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response.text();
+      })
+      .then(content => {
+        const detectedFormat = dbInfo.database ? 
+          DatabaseUrlToFormat[dbInfo.database] || detectFormatByContent(content) : 
+          detectFormatByContent(content);
+        if (!detectedFormat) {
+          throw new Error("Could not detect file format");
+        }
+        const fileName = url.split('/').pop() || 'downloaded_file';
+        const file = new File([content], fileName, { type: 'text/plain' });
+        setUploadedFile(file);
+        setFileContent(content);
+        setFileType(detectedFormat);
+        setDetectedFormat(detectedFormat);
+        generatePreview(content, detectedFormat);
+        addToHistory({
+          type: 'url',
+          format: detectedFormat,
+          url: url,
+          database: dbInfo.database || 'unknown',
+          timestamp: new Date().toISOString()
+        });
+        showNotificationMessage(`Loaded file from URL: ${fileName}`);
+        setIsLoadingUrl(false);
+        setActiveTab('upload');
+      })
+      .catch(err => {
+        setError(`Error loading URL: ${err.message}`);
+        setIsLoadingUrl(false);
+      });
+  };
+
+  const performDatabaseSearch = (database, subDatabase, searchTerm) => {
+    if (!searchTerm.trim()) {
+      setError("Please enter a search term");
+      return;
+    }
+    setIsSearching(true);
+    setError(null);
+    setSearchResults([]);
+    const searchUrl = generateSearchUrl(database, subDatabase, searchTerm);
+    if (!searchUrl) {
+      setError("Could not generate search URL");
+      setIsSearching(false);
+      return;
+    }
+    searchDatabase(
+      database,
+      subDatabase,
+      searchTerm,
+      (results) => {
+        setSearchResults(results.results || []);
+        setIsSearching(false);
+        if (results.results.length === 0) {
+          setError(`No results found for "${searchTerm}"`);
+        }
+      },
+      (error) => {
+        setError(`Search error: ${error}`);
+        setIsSearching(false);
+      }
+    );
+  };
+
+  const loadSearchResult = (result) => {
+    setIsLoadingUrl(true);
+    setError(null);
+    const database = result.database;
+    const subDatabase = result.subDatabase;
+    const accessionId = result.id;
+    const fetchUrl = generateDatabaseUrl(database, subDatabase, accessionId);
+    if (!fetchUrl) {
+      setError("Could not generate URL for the selected entry");
+      setIsLoadingUrl(false);
+      return;
+    }
+    fetchFromUrl(
+      fetchUrl,
+      (result) => {
+        const content = result.content;
+        const format = result.format;
+        if (!content || !format) {
+          setError("Could not retrieve data from the selected entry");
+          setIsLoadingUrl(false);
+          return;
+        }
+        const fileName = `${accessionId}.${format}`;
+        const file = new File([content], fileName, { type: 'text/plain' });
+        setUploadedFile(file);
+        setFileContent(content);
+        setFileType(format);
+        setDetectedFormat(format);
+        generatePreview(content, format);
+        addToHistory({
+          type: 'search_result',
+          format: format,
+          id: accessionId,
+          database: database,
+          timestamp: new Date().toISOString()
+        });
+        showNotificationMessage(`Loaded ${accessionId} from ${database}`);
+        setIsLoadingUrl(false);
+        setActiveTab('upload');
+      },
+      (error) => {
+        setError(`Error loading entry: ${error}`);
+        setIsLoadingUrl(false);
+      }
+    );
+  };
+
+  const loadExampleFile = (format) => {
+    const example = ExampleFiles[format];
+    const file = new File([example.content], example.name, { type: 'text/plain' });
+    setUploadedFile(file);
+    setFileContent(example.content);
+    setFileType(format);
+    setDetectedFormat(format);
+    generatePreview(example.content, format);
+    setSelectedExample(format);
+    addToHistory({
+      type: 'example',
+      format: format,
+      fileName: example.name,
+      timestamp: new Date().toISOString()
+    });
+    showNotificationMessage(`Loaded example: ${example.name}`);
+    setActiveTab('upload');
+  };
+
+  // Rendering functions (from Version 2 with progress indicator from Version 1)
+  const renderProcessingStatus = () => {
+    if (processingProgress > 0 && processingProgress < 100) {
+      return (
+        <div className="mt-4">
+          <div className="w-full bg-gray-200 rounded-full h-2.5">
+            <div 
+              className="bg-blue-600 h-2.5 rounded-full" 
+              style={{ width: `${processingProgress}%` }}
+            ></div>
+          </div>
+          <p className="text-sm text-gray-600 mt-1">
+            {isProcessingLargeFile 
+              ? `Processing large file in chunks... ${processingProgress}%` 
+              : `Processing file... ${processingProgress}%`}
+          </p>
+        </div>
+      );
+    }
+    return null;
+  };
+
   const renderFormatOptions = () => {
     if (!fileType) return null;
-    
     const compatibleFormats = ConversionMatrix[fileType] || [];
-    
     return (
       <div className="mt-4">
         <h3 className="text-lg font-medium mb-2">Convert to:</h3>
@@ -762,7 +767,6 @@ const BioFormatConverter = () => {
             </option>
           ))}
         </select>
-        
         {showAdvancedOptions && (
           <ConversionOptions 
             options={conversionOptions}
@@ -771,7 +775,6 @@ const BioFormatConverter = () => {
             targetFormat={targetFormat}
           />
         )}
-        
         <div className="mt-2">
           <button
             className="text-sm text-blue-600 flex items-center"
@@ -781,7 +784,6 @@ const BioFormatConverter = () => {
             {showAdvancedOptions ? 'Hide advanced options' : 'Show advanced options'}
           </button>
         </div>
-        
         <button 
           className="mt-3 bg-blue-600 text-white p-2 rounded w-full flex justify-center items-center space-x-2 disabled:bg-blue-300"
           onClick={handleConversion}
@@ -802,15 +804,11 @@ const BioFormatConverter = () => {
       </div>
     );
   };
-  
-  // Render the analysis tools available for the current format
+
   const renderAnalysisTools = () => {
     if (!fileType || !fileContent) return null;
-    
     const tools = AnalysisTools[fileType] || [];
-    
     if (tools.length === 0) return null;
-    
     return (
       <div className="mt-4">
         <button
@@ -821,7 +819,6 @@ const BioFormatConverter = () => {
           <span>{showAnalysisOptions ? 'Hide analysis tools' : 'Show analysis tools'}</span>
           <ChevronDown className={`w-4 h-4 ml-1 transform ${showAnalysisOptions ? 'rotate-180' : ''}`} />
         </button>
-        
         {showAnalysisOptions && (
           <div className="mt-2 border rounded-md p-3 bg-gray-50">
             <h4 className="font-medium mb-2">Available Analysis Tools:</h4>
@@ -846,26 +843,21 @@ const BioFormatConverter = () => {
       </div>
     );
   };
-  
-  // Render file preview based on format
+
   const renderPreview = () => {
     if (!previewData) return null;
-    
     return (
       <div className="mt-6 border p-4 rounded bg-gray-50">
         <h3 className="text-lg font-medium mb-2">File Preview:</h3>
-        
         {previewData.format === "fasta" && (
           <div>
             <p><strong>Format:</strong> FASTA</p>
             <p><strong>Sequences:</strong> {previewData.sequenceCount}</p>
             <p><strong>Total Length:</strong> {previewData.totalLength} bp</p>
             <p><strong>Type:</strong> {previewData.type === "nucleotide" ? "Nucleotide sequence" : "Protein sequence"}</p>
-            
             {previewData.gcContent && (
               <p><strong>GC Content:</strong> {previewData.gcContent}</p>
             )}
-            
             {previewData.sequences.length > 0 && (
               <div className="mt-2 border-t pt-2">
                 <p><strong>First sequence:</strong></p>
@@ -877,14 +869,12 @@ const BioFormatConverter = () => {
             )}
           </div>
         )}
-        
         {previewData.format === "fastq" && (
           <div>
             <p><strong>Format:</strong> FASTQ</p>
             <p><strong>Sequences:</strong> {previewData.sequenceCount}</p>
             <p><strong>Average Read Length:</strong> {previewData.avgReadLength} bp</p>
             <p><strong>Quality scores:</strong> min: {previewData.qualityStats.min}, max: {previewData.qualityStats.max}, avg: {previewData.qualityStats.avg}</p>
-            
             {previewData.sequences.length > 0 && (
               <div className="mt-2 border-t pt-2">
                 <p><strong>Sample read:</strong></p>
@@ -896,22 +886,18 @@ const BioFormatConverter = () => {
             )}
           </div>
         )}
-        
         {previewData.format === "genbank" && (
           <div>
             <p><strong>Format:</strong> GenBank</p>
             <p><strong>Sequence:</strong> {previewData.metadata.name || 'Unknown'}</p>
             <p><strong>Length:</strong> {previewData.sequenceLength} bp</p>
             <p><strong>Features:</strong> {previewData.featureCount}</p>
-            
             {previewData.metadata.definition && (
               <p className="mt-2"><strong>Definition:</strong> {previewData.metadata.definition}</p>
             )}
-            
             {previewData.metadata.organism && (
               <p><strong>Organism:</strong> {previewData.metadata.organism}</p>
             )}
-            
             {previewData.featureTypes && Object.keys(previewData.featureTypes).length > 0 && (
               <div className="mt-2 border-t pt-2">
                 <p><strong>Feature types:</strong></p>
@@ -924,7 +910,6 @@ const BioFormatConverter = () => {
             )}
           </div>
         )}
-        
         {previewData.format === "pdb" && (
           <div>
             <p><strong>Format:</strong> PDB</p>
@@ -934,17 +919,14 @@ const BioFormatConverter = () => {
             <p><strong>Atoms:</strong> {previewData.atomCount}</p>
             <p><strong>HETATM records:</strong> {previewData.hetatmCount}</p>
             <p><strong>Chains:</strong> {previewData.chainCount} ({previewData.chains.join(', ')})</p>
-            
             {previewData.secondaryStructure && (
               <p><strong>Secondary structure:</strong> {previewData.secondaryStructure.helixCount} helices, {previewData.secondaryStructure.sheetCount} sheets</p>
             )}
-            
             {previewData.residueTypes.length > 0 && (
               <div className="mt-2">
                 <p><strong>Residue types:</strong> {previewData.residueTypes.slice(0, 10).join(', ')}{previewData.residueTypes.length > 10 ? '...' : ''}</p>
               </div>
             )}
-            
             {previewData.atoms.length > 0 && (
               <div className="mt-2 border-t pt-2">
                 <p><strong>Sample atoms:</strong></p>
@@ -974,17 +956,14 @@ const BioFormatConverter = () => {
             )}
           </div>
         )}
-        
         {previewData.format === "clustal" && (
           <div>
             <p><strong>Format:</strong> Clustal</p>
             <p><strong>Sequences:</strong> {previewData.sequenceCount}</p>
             <p><strong>Alignment Length:</strong> {previewData.alignmentLength} positions</p>
-            
             {previewData.identities && previewData.identities.length > 0 && (
               <p><strong>Identity:</strong> {previewData.identities[0].seq1} vs {previewData.identities[0].seq2}: {previewData.identities[0].identityPercent}</p>
             )}
-            
             {previewData.conservedRegions && previewData.conservedRegions.length > 0 && (
               <div className="mt-2">
                 <p><strong>Conserved Regions:</strong></p>
@@ -995,7 +974,6 @@ const BioFormatConverter = () => {
                 </ul>
               </div>
             )}
-            
             {previewData.sequences.length > 0 && (
               <div className="mt-2 border-t pt-2">
                 <p><strong>Alignment Preview:</strong></p>
@@ -1014,11 +992,9 @@ const BioFormatConverter = () => {
       </div>
     );
   };
-  
-  // Render conversion result
+
   const renderConversionResult = () => {
     if (!convertedData) return null;
-    
     return (
       <div className="mt-6 border p-4 rounded bg-green-50">
         <div className="flex justify-between items-start">
@@ -1026,7 +1002,6 @@ const BioFormatConverter = () => {
             <Check className="w-5 h-5 text-green-600 mr-2" />
             Conversion Successful
           </h3>
-          
           <button
             className="bg-green-600 text-white p-2 rounded flex items-center space-x-1"
             onClick={downloadConvertedFile}
@@ -1035,24 +1010,19 @@ const BioFormatConverter = () => {
             <span>Download</span>
           </button>
         </div>
-        
         <div className="mt-2">
           <p><strong>From:</strong> {FormatDefinitions[convertedData.originalFormat].name}</p>
           <p><strong>To:</strong> {FormatDefinitions[convertedData.format].name}</p>
-          
           {convertedData.sequenceCount && (
             <p><strong>Sequences:</strong> {convertedData.sequenceCount}</p>
           )}
-          
           {convertedData.totalLength && (
             <p><strong>Total Length:</strong> {convertedData.totalLength} bp</p>
           )}
-          
           {convertedData.note && (
             <p className="mt-2 text-sm text-amber-700">{convertedData.note}</p>
           )}
         </div>
-        
         <div className="mt-3 border-t pt-3">
           <h4 className="font-medium mb-1">Preview:</h4>
           <div className="bg-white border rounded p-2 max-h-52 overflow-auto">
@@ -1062,19 +1032,15 @@ const BioFormatConverter = () => {
       </div>
     );
   };
-  
-  // Render analysis results
+
   const renderAnalysisResults = () => {
     if (!analysisResults) return null;
-    
     return (
       <div className="mt-6 border p-4 rounded bg-blue-50">
         <h3 className="text-lg font-medium mb-2 flex items-center">
           <BarChart2 className="w-5 h-5 text-blue-600 mr-2" />
           {analysisResults.title}
         </h3>
-        
-        {/* Sequence Statistics Analysis */}
         {analysisResults.type === "sequence_stats" && (
           <div>
             <div className="grid grid-cols-2 gap-4 mb-4">
@@ -1085,7 +1051,6 @@ const BioFormatConverter = () => {
                 <p className="text-sm">Total Length: {analysisResults.data.stats.totalLength} bp</p>
                 <p className="text-sm">Average Length: {analysisResults.data.stats.averageLength} bp</p>
               </div>
-              
               <div className="bg-white p-3 rounded shadow-sm">
                 <p className="font-medium mb-1">Length Statistics</p>
                 <p className="text-sm">Min Length: {analysisResults.data.stats.minLength} bp</p>
@@ -1095,7 +1060,6 @@ const BioFormatConverter = () => {
                 )}
               </div>
             </div>
-            
             <div className="bg-white p-3 rounded shadow-sm mb-4">
               <p className="font-medium mb-1">Composition</p>
               <div className="grid grid-cols-5 gap-2">
@@ -1107,7 +1071,6 @@ const BioFormatConverter = () => {
                 ))}
               </div>
             </div>
-            
             <div className="bg-white p-3 rounded shadow-sm">
               <p className="font-medium mb-1">Sequences</p>
               <table className="w-full text-sm">
@@ -1131,8 +1094,6 @@ const BioFormatConverter = () => {
             </div>
           </div>
         )}
-        
-        {/* GC Content Analysis */}
         {analysisResults.type === "gc_content" && (
           <div>
             <div className="bg-white p-3 rounded shadow-sm mb-4">
@@ -1140,7 +1101,6 @@ const BioFormatConverter = () => {
               <p className="text-lg font-bold text-center my-2">{analysisResults.data.overallGcContent}</p>
               <p className="text-sm text-center">Overall GC content across {analysisResults.data.sequenceCount} sequences</p>
             </div>
-            
             <div className="bg-white p-3 rounded shadow-sm">
               <p className="font-medium mb-1">GC Content by Sequence</p>
               <table className="w-full text-sm">
@@ -1164,14 +1124,11 @@ const BioFormatConverter = () => {
             </div>
           </div>
         )}
-        
-        {/* Protein Translation */}
         {analysisResults.type === "translate" && (
           <div>
             <div className="bg-white p-3 rounded shadow-sm mb-4">
               <p className="font-medium mb-1">Translation Results</p>
               <p className="text-sm">Translated {analysisResults.data.sequenceCount} sequences</p>
-              
               <div className="mt-3">
                 <p className="font-medium text-sm">Translated Sequences:</p>
                 <table className="w-full text-sm mt-1">
@@ -1194,7 +1151,6 @@ const BioFormatConverter = () => {
                 </table>
               </div>
             </div>
-            
             <div className="bg-white p-3 rounded shadow-sm">
               <p className="font-medium mb-1">FASTA Output</p>
               <div className="font-mono text-xs whitespace-pre-wrap border p-2 rounded max-h-40 overflow-y-auto">
@@ -1203,7 +1159,6 @@ const BioFormatConverter = () => {
               <button
                 className="mt-2 text-blue-600 text-sm flex items-center"
                 onClick={() => {
-                  // Create a download for the FASTA output
                   const blob = new Blob([analysisResults.data.fastaFormat], { type: 'text/plain' });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
@@ -1221,8 +1176,6 @@ const BioFormatConverter = () => {
             </div>
           </div>
         )}
-        
-        {/* Feature Statistics */}
         {analysisResults.type === "feature_stats" && (
           <div>
             <div className="bg-white p-3 rounded shadow-sm mb-4">
@@ -1239,7 +1192,6 @@ const BioFormatConverter = () => {
                 </>
               )}
             </div>
-            
             <div className="bg-white p-3 rounded shadow-sm mb-4">
               <p className="font-medium mb-1">Feature Types</p>
               <table className="w-full text-sm">
@@ -1259,7 +1211,6 @@ const BioFormatConverter = () => {
                 </tbody>
               </table>
             </div>
-            
             <div className="bg-white p-3 rounded shadow-sm">
               <p className="font-medium mb-1">Sample Features</p>
               <div className="space-y-2 mt-1">
@@ -1283,8 +1234,6 @@ const BioFormatConverter = () => {
             </div>
           </div>
         )}
-        
-        {/* Structure Analysis */}
         {analysisResults.type === "structure_analysis" && (
           <div>
             <div className="grid grid-cols-2 gap-4 mb-4">
@@ -1295,7 +1244,6 @@ const BioFormatConverter = () => {
                 <p className="text-sm">HETATM: {analysisResults.data.summary.hetatmCount}</p>
                 <p className="text-sm">Chains: {analysisResults.data.summary.chainCount}</p>
               </div>
-              
               <div className="bg-white p-3 rounded shadow-sm">
                 <p className="font-medium mb-1">Secondary Structure</p>
                 <p className="text-sm">Helices: {analysisResults.data.summary.secondaryStructure.helixCount}</p>
@@ -1303,7 +1251,6 @@ const BioFormatConverter = () => {
                 <p className="text-sm">Residue Types: {analysisResults.data.summary.residueTypeCount}</p>
               </div>
             </div>
-            
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-white p-3 rounded shadow-sm">
                 <p className="font-medium mb-1">Residue Composition</p>
@@ -1326,7 +1273,6 @@ const BioFormatConverter = () => {
                   </table>
                 </div>
               </div>
-              
               <div className="bg-white p-3 rounded shadow-sm">
                 <p className="font-medium mb-1">Chain Information</p>
                 <table className="w-full text-sm">
@@ -1349,8 +1295,6 @@ const BioFormatConverter = () => {
             </div>
           </div>
         )}
-        
-        {/* Conservation Analysis */}
         {analysisResults.type === "conservation" && (
           <div>
             <div className="bg-white p-3 rounded shadow-sm mb-4">
@@ -1359,7 +1303,6 @@ const BioFormatConverter = () => {
               <p className="text-sm">Alignment Length: {analysisResults.data.alignmentLength} positions</p>
               <p className="text-sm">Conservation Score: {analysisResults.data.overallConservation}%</p>
             </div>
-            
             <div className="bg-white p-3 rounded shadow-sm mb-4">
               <p className="font-medium mb-1">Conserved Regions</p>
               <table className="w-full text-sm">
@@ -1381,7 +1324,6 @@ const BioFormatConverter = () => {
                 </tbody>
               </table>
             </div>
-            
             <div className="bg-white p-3 rounded shadow-sm">
               <p className="font-medium mb-1">Conservation Visualization</p>
               <div className="font-mono text-xs whitespace-pre-wrap overflow-x-auto mt-2">
@@ -1395,8 +1337,7 @@ const BioFormatConverter = () => {
       </div>
     );
   };
-  
-  // Render saved jobs
+
   const renderSavedJobs = () => {
     if (savedJobs.length === 0) {
       return (
@@ -1407,7 +1348,6 @@ const BioFormatConverter = () => {
         </div>
       );
     }
-    
     return (
       <div className="space-y-3">
         {savedJobs.map(job => (
@@ -1441,8 +1381,7 @@ const BioFormatConverter = () => {
       </div>
     );
   };
-  
-  // Render job history
+
   const renderJobHistory = () => {
     if (jobHistory.length === 0) {
       return (
@@ -1453,7 +1392,6 @@ const BioFormatConverter = () => {
         </div>
       );
     }
-    
     return (
       <div className="space-y-2">
         {jobHistory.map(job => (
@@ -1504,14 +1442,12 @@ const BioFormatConverter = () => {
       </div>
     );
   };
-  
-  // Render examples tab
+
   const renderExamples = () => {
     return (
       <div>
         <h2 className="text-lg font-medium mb-3">Example Files</h2>
         <p className="text-gray-600 mb-4">Try out the converter with these pre-loaded example files:</p>
-        
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {Object.entries(ExampleFiles).map(([format, example]) => (
             <div 
@@ -1536,13 +1472,11 @@ const BioFormatConverter = () => {
       </div>
     );
   };
-  
-  // Render help tab
+
   const renderHelp = () => {
     return (
       <div>
         <h2 className="text-lg font-medium mb-3">Help & Information</h2>
-        
         <div className="mb-4 p-4 bg-blue-50 rounded border border-blue-200">
           <h3 className="font-medium text-blue-800 mb-2 flex items-center">
             <HelpCircle className="w-5 h-5 mr-2" />
@@ -1556,7 +1490,6 @@ const BioFormatConverter = () => {
             This tool is designed for researchers, students, and professionals working with biological data who need to quickly convert between different file formats.
           </p>
         </div>
-        
         <div className="space-y-4">
           <div className="border-b pb-2">
             <h3 className="font-medium mb-2">How to Use</h3>
@@ -1569,7 +1502,6 @@ const BioFormatConverter = () => {
               <li>Preview the result and download the converted file</li>
             </ol>
           </div>
-          
           <div className="border-b pb-2">
             <h3 className="font-medium mb-2">Supported Formats</h3>
             <div className="text-sm space-y-3">
@@ -1588,7 +1520,6 @@ const BioFormatConverter = () => {
               ))}
             </div>
           </div>
-          
           <div>
             <h3 className="font-medium mb-2">Analysis Tools</h3>
             <ul className="list-disc list-inside text-sm space-y-1 text-gray-700">
@@ -1604,14 +1535,13 @@ const BioFormatConverter = () => {
       </div>
     );
   };
-  
+
   // Main render
   return (
     <div className="max-w-4xl mx-auto p-4">
       <div className="bg-white rounded-lg shadow p-6">
         <h1 className="text-2xl font-bold mb-1">Biology Format Converter</h1>
         <p className="text-gray-600 mb-4">Convert between common biological data formats</p>
-        
         <div className="flex border-b mb-4">
           <button
             className={`px-4 py-2 font-medium ${activeTab === 'upload' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'}`}
@@ -1650,8 +1580,6 @@ const BioFormatConverter = () => {
             Help
           </button>
         </div>
-        
-        {/* Upload Tab */}
         {activeTab === 'upload' && (
           <>
             <div 
@@ -1667,7 +1595,6 @@ const BioFormatConverter = () => {
                 onChange={handleFileUpload}
                 className="hidden"
               />
-              
               {!uploadedFile ? (
                 <div>
                   <Upload className="w-12 h-12 mx-auto text-gray-400" />
@@ -1678,7 +1605,6 @@ const BioFormatConverter = () => {
                   >
                     Browse Files
                   </button>
-                  
                   <div className="mt-4">
                     <button
                       className="text-blue-600 text-sm flex items-center"
@@ -1687,16 +1613,13 @@ const BioFormatConverter = () => {
                       <ChevronDown className={`w-4 h-4 mr-1 transition-transform ${showFormatInfo ? 'rotate-180' : ''}`} />
                       {showFormatInfo ? 'Hide supported formats' : 'Show supported formats'}
                     </button>
-                    
                     {showFormatInfo && (
                       <div className="mt-2 text-sm border rounded p-3 bg-gray-50">
                         <h3 className="font-medium mb-2">Supported Formats:</h3>
-                        
                         {Object.entries(FormatCategories).map(([category, info]) => (
                           <div key={category} className="mb-3">
                             <h4 className="font-medium text-gray-700">{info.name}</h4>
                             <p className="text-xs text-gray-600 mb-1">{info.description}</p>
-                            
                             <div className="space-y-2">
                               {Object.entries(FormatDefinitions)
                                 .filter(([_, formatInfo]) => formatInfo.category === category)
@@ -1709,7 +1632,6 @@ const BioFormatConverter = () => {
                             </div>
                           </div>
                         ))}
-                        
                         <h3 className="font-medium mt-4 mb-2">Supported Conversions:</h3>
                         <ul className="list-disc list-inside">
                           {Object.entries(ConversionMatrix).flatMap(([from, toFormats]) => 
@@ -1738,7 +1660,6 @@ const BioFormatConverter = () => {
                       </p>
                     </div>
                   </div>
-                  
                   <div className="flex space-x-2 justify-center">
                     <button
                       className="text-sm text-blue-600"
@@ -1746,7 +1667,6 @@ const BioFormatConverter = () => {
                     >
                       Upload a different file
                     </button>
-                    
                     {fileType && (
                       <button
                         className="text-sm text-blue-600 flex items-center"
@@ -1760,23 +1680,27 @@ const BioFormatConverter = () => {
                 </div>
               )}
             </div>
-            
             {error && (
               <div className="mt-4 bg-red-100 border border-red-200 text-red-700 p-3 rounded flex items-start">
                 <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" />
-                <p>{error}</p>
-              </div>
-            )}
-            
-            {processingProgress > 0 && processingProgress < 100 && (
-              <div className="mt-4">
-                <div className="w-full bg-gray-200 rounded-full h-2.5">
-                  <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${processingProgress}%` }}></div>
+                <div>
+                  <p className="font-medium">{error}</p>
+                  {errorDetails && (
+                    <details className="mt-1 text-xs">
+                      <summary className="cursor-pointer">Technical details</summary>
+                      <p className="mt-1">Source: {errorDetails.source || 'Unknown'}</p>
+                      {errorDetails.message && <p>Message: {errorDetails.message}</p>}
+                      {errorDetails.stack && (
+                        <pre className="mt-1 whitespace-pre-wrap overflow-x-auto max-h-40">
+                          {errorDetails.stack}
+                        </pre>
+                      )}
+                    </details>
+                  )}
                 </div>
-                <p className="text-sm text-gray-600 mt-1">Processing file... {processingProgress}%</p>
               </div>
             )}
-            
+            {renderProcessingStatus()}
             {uploadedFile && (
               <div>
                 {renderFormatOptions()}
@@ -1788,8 +1712,6 @@ const BioFormatConverter = () => {
             )}
           </>
         )}
-        
-        {/* URL Tab */}
         {activeTab === 'url' && (
           <UrlLoader 
             urlInput={urlInput}
@@ -1807,36 +1729,25 @@ const BioFormatConverter = () => {
             setError={setError}
           />
         )}
-        
-        {/* Examples Tab */}
         {activeTab === 'examples' && renderExamples()}
-        
-        {/* Saved Jobs Tab */}
         {activeTab === 'saved' && (
           <div>
             <h2 className="text-lg font-medium mb-3">Saved Jobs</h2>
             {renderSavedJobs()}
           </div>
         )}
-        
-        {/* History Tab */}
         {activeTab === 'history' && (
           <div>
             <h2 className="text-lg font-medium mb-3">Activity History</h2>
             {renderJobHistory()}
           </div>
         )}
-        
-        {/* Help Tab */}
         {activeTab === 'help' && renderHelp()}
-        
         <div className="mt-6 text-xs text-gray-500 border-t pt-4">
           <p>All processing is done in your browser - no data is sent to a server.</p>
           <p>Created for scientific research. Designed to handle commonly used biological data formats.</p>
         </div>
       </div>
-      
-      {/* Notification */}
       {showNotification && (
         <div className="fixed bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded-md shadow-lg">
           {notificationMessage}
@@ -1846,54 +1757,11 @@ const BioFormatConverter = () => {
   );
 };
 
-// UIComponents.js
-import React from 'react';
-
-export const FileDropZone = ({ children, onDrop, onDragOver, onDragLeave, dragActive }) => {
-  return (
-    <div 
-      className={`border-2 ${dragActive ? 'border-blue-400 bg-blue-50' : 'border-dashed border-gray-300 bg-gray-50'} rounded-lg p-8 text-center`}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-    >
-      {children}
-    </div>
-  );
-};
-
-export const Notification = ({ message, onClose }) => {
-  return (
-    <div className="fixed bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded-md shadow-lg flex justify-between items-center">
-      <span>{message}</span>
-      {onClose && (
-        <button className="ml-3 text-white" onClick={onClose}>×</button>
-      )}
-    </div>
-  );
-};
-
-export const TabNavigation = ({ tabs, activeTab, onTabChange }) => {
-  return (
-    <div className="flex border-b mb-4">
-      {tabs.map(tab => (
-        <button
-          key={tab.id}
-          className={`px-4 py-2 font-medium ${activeTab === tab.id ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'}`}
-          onClick={() => onTabChange(tab.id)}
-        >
-          {tab.label}
-        </button>
-      ))}
-    </div>
-  );
-};
-
-export const ConversionOptions = ({ options, setOptions, sourceFormat, targetFormat }) => {
+// UI Components
+const ConversionOptions = ({ options, setOptions, sourceFormat, targetFormat }) => {
   return (
     <div className="mt-3 border rounded-md p-3 bg-gray-50">
       <h3 className="text-sm font-medium mb-2">Conversion Options</h3>
-      
       <div className="grid grid-cols-2 gap-2">
         {(sourceFormat === 'fasta' || targetFormat === 'fasta') && (
           <label className="flex items-center">
@@ -1906,7 +1774,6 @@ export const ConversionOptions = ({ options, setOptions, sourceFormat, targetFor
             <span className="text-sm">Format sequence with line breaks</span>
           </label>
         )}
-        
         {sourceFormat === 'fastq' && (
           <label className="flex items-center">
             <input
@@ -1918,7 +1785,6 @@ export const ConversionOptions = ({ options, setOptions, sourceFormat, targetFor
             <span className="text-sm">Include quality scores</span>
           </label>
         )}
-        
         {(sourceFormat === 'clustal' || sourceFormat === 'stockholm') && (
           <label className="flex items-center">
             <input
@@ -1930,213 +1796,31 @@ export const ConversionOptions = ({ options, setOptions, sourceFormat, targetFor
             <span className="text-sm">Remove alignment gaps</span>
           </label>
         )}
-        
-        {/* Add more format-specific options here */}
       </div>
     </div>
   );
 };
 
-
-// Process URL input
-const processUrlInput = (url) => {
-  if (!url.trim()) {
-    setError("Please enter a URL");
-    return;
-  }
-  
-  setIsLoadingUrl(true);
-  setError(null);
-  
-  // Detect if it's a database URL
-  const dbInfo = getDatabaseFromUrl(url);
-  
-  fetch(url)
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
-      }
-      return response.text();
-    })
-    .then(content => {
-      // Auto-detect format
-      const detectedFormat = dbInfo.database ? 
-        DatabaseUrlToFormat[dbInfo.database] || detectFormatByContent(content) : 
-        detectFormatByContent(content);
-      
-      if (!detectedFormat) {
-        throw new Error("Could not detect file format");
-      }
-      
-      // Create file object
-      const fileName = url.split('/').pop() || 'downloaded_file';
-      const file = new File([content], fileName, { type: 'text/plain' });
-      
-      setUploadedFile(file);
-      setFileContent(content);
-      setFileType(detectedFormat);
-      setDetectedFormat(detectedFormat);
-      generatePreview(content, detectedFormat);
-      
-      // Add to job history
-      addToHistory({
-        type: 'url',
-        format: detectedFormat,
-        url: url,
-        database: dbInfo.database || 'unknown',
-        timestamp: new Date().toISOString()
-      });
-      
-      showNotificationMessage(`Loaded file from URL: ${fileName}`);
-      setIsLoadingUrl(false);
-      setActiveTab('upload'); // Switch to upload tab to show preview
-    })
-    .catch(err => {
-      setError(`Error loading URL: ${err.message}`);
-      setIsLoadingUrl(false);
-    });
-};
-
-// Search database
-const performDatabaseSearch = (database, subDatabase, searchTerm) => {
-  if (!searchTerm.trim()) {
-    setError("Please enter a search term");
-    return;
-  }
-  
-  setIsSearching(true);
-  setError(null);
-  setSearchResults([]);
-  
-  // Generate search URL
-  const searchUrl = generateSearchUrl(database, subDatabase, searchTerm);
-  
-  if (!searchUrl) {
-    setError("Could not generate search URL");
-    setIsSearching(false);
-    return;
-  }
-  
-  // Perform search
-  searchDatabase(
-    database,
-    subDatabase,
-    searchTerm,
-    (results) => {
-      setSearchResults(results.results || []);
-      setIsSearching(false);
-      
-      if (results.results.length === 0) {
-        setError(`No results found for "${searchTerm}"`);
-      }
-    },
-    (error) => {
-      setError(`Search error: ${error}`);
-      setIsSearching(false);
-    }
-  );
-};
-
-// Load search result
-const loadSearchResult = (result) => {
-  setIsLoadingUrl(true);
-  setError(null);
-  
-  const database = result.database;
-  const subDatabase = result.subDatabase;
-  const accessionId = result.id;
-  
-  // Generate URL for fetching the entry
-  const fetchUrl = generateDatabaseUrl(database, subDatabase, accessionId);
-  
-  if (!fetchUrl) {
-    setError("Could not generate URL for the selected entry");
-    setIsLoadingUrl(false);
-    return;
-  }
-  
-  // Fetch the entry
-  fetchFromUrl(
-    fetchUrl,
-    (result) => {
-      const content = result.content;
-      const format = result.format;
-      
-      if (!content || !format) {
-        setError("Could not retrieve data from the selected entry");
-        setIsLoadingUrl(false);
-        return;
-      }
-      
-      // Create file object
-      const fileName = `${accessionId}.${format}`;
-      const file = new File([content], fileName, { type: 'text/plain' });
-      
-      setUploadedFile(file);
-      setFileContent(content);
-      setFileType(format);
-      setDetectedFormat(format);
-      generatePreview(content, format);
-      
-      // Add to job history
-      addToHistory({
-        type: 'search_result',
-        format: format,
-        id: accessionId,
-        database: database,
-        timestamp: new Date().toISOString()
-      });
-      
-      showNotificationMessage(`Loaded ${accessionId} from ${database}`);
-      setIsLoadingUrl(false);
-      setActiveTab('upload'); // Switch to upload tab to show preview
-    },
-    (error) => {
-      setError(`Error loading entry: ${error}`);
-      setIsLoadingUrl(false);
-    }
-  );
-};
-
-
+// Placeholder for UrlLoader (assuming it's defined elsewhere as per Version 2)
+const UrlLoader = ({ urlInput, setUrlInput, isLoadingUrl, processUrlInput, databaseSearch, setDatabaseSearch, isSearching, performDatabaseSearch, searchResults, loadSearchResult, databaseResources, error, setError }) => {
   return (
-    <div className="max-w-4xl mx-auto p-4">
-      <div className="bg-white rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold mb-1">Biology Format Converter</h1>
-        <p className="text-gray-600 mb-4">Convert between common biological data formats</p>
-        
-        {/* Error display with details for advanced users */}
-        {error && (
-          <div className="mt-4 bg-red-100 border border-red-200 text-red-700 p-3 rounded flex items-start">
-            <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium">{error}</p>
-              {errorDetails && (
-                <details className="mt-1 text-xs">
-                  <summary className="cursor-pointer">Technical details</summary>
-                  <p className="mt-1">Source: {errorDetails.source || 'Unknown'}</p>
-                  {errorDetails.message && <p>Message: {errorDetails.message}</p>}
-                  {errorDetails.stack && (
-                    <pre className="mt-1 whitespace-pre-wrap overflow-x-auto max-h-40">
-                      {errorDetails.stack}
-                    </pre>
-                  )}
-                </details>
-              )}
-            </div>
-          </div>
-        )}
-        
-        {/* Rest of the UI components */}
-        {/* ... */}
-        
-        {/* Notification */}
-        {showNotification && (
-          <div className="fixed bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded-md shadow-lg">
-            {notificationMessage}
-          </div>
-        )}
-      </div>
+    <div>
+      <h2 className="text-lg font-medium mb-3">Load from URL or Database</h2>
+      <input
+        type="text"
+        value={urlInput}
+        onChange={(e) => setUrlInput(e.target.value)}
+        placeholder="Enter URL"
+        className="w-full p-2 border rounded mb-2"
+      />
+      <button
+        onClick={() => processUrlInput(urlInput)}
+        disabled={isLoadingUrl}
+        className="bg-blue-600 text-white p-2 rounded w-full"
+      >
+        {isLoadingUrl ? 'Loading...' : 'Load URL'}
+      </button>
+      {/* Add database search UI here if provided */}
     </div>
   );
 };
