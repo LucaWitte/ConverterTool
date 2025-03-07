@@ -1,0 +1,178 @@
+// FormatDefinitions.js - Definitions of supported file formats and conversion rules
+
+// Format definitions
+export const FormatDefinitions = {
+  fasta: {
+    name: "FASTA",
+    description: "Basic sequence format with a header line and sequence data",
+    extensions: [".fa", ".fasta", ".fna", ".faa", ".ffn"],
+    example: ">Sequence_ID Description\nATGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTA\nGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTA",
+    category: "sequence",
+    icon: "FileText",
+    databases: ["NCBI", "UniProt", "Ensembl"]
+  },
+  fastq: {
+    name: "FASTQ",
+    description: "Sequence format with quality scores (NGS data)",
+    extensions: [".fq", ".fastq"],
+    example: "@SRR001666.1 071112_SLXA-EAS1_s_7:5:1:817:345 length=36\nGATTTGGGGTTCAAAGCAGTATCGATCAAATAGTAA\n+\n!''*((((***+))%%%++)(%%%%).1***-+*''))",
+    category: "sequence",
+    icon: "FileText",
+    databases: ["SRA", "ENA"]
+  },
+  genbank: {
+    name: "GenBank",
+    description: "Annotated sequence format with features and metadata",
+    extensions: [".gb", ".gbk", ".gbff"],
+    example: "LOCUS       SEQUENCE_ID          1000 bp    DNA     linear   01-JAN-2023\nDEFINITION  Example GenBank file.\nACCESSION   SEQUENCE_ID\nVERSION     SEQUENCE_ID.1\nSOURCE      .\n  ORGANISM  Example Organism\n            .\nFEATURES             Location/Qualifiers\n     source          1..1000\n                     /organism=\"Example Organism\"\n     gene            1..100\n                     /gene=\"example_gene\"\nORIGIN\n        1 atgctagcta gctagctagt cagctacgta gctagctagc tagctagcta gctagctacg\n       61 taccgcgcgc gcgctagcta gctagctacg tacgtacgta cgtacgtacg tacgtacgta\n//",
+    category: "annotation",
+    icon: "FileCode",
+    databases: ["NCBI", "DDBJ", "ENA"]
+  },
+  embl: {
+    name: "EMBL",
+    description: "European Molecular Biology Laboratory sequence format",
+    extensions: [".embl", ".ebl"],
+    example: "ID   SEQUENCE_ID; SV 1; linear; DNA; STD; UNC; 1000 BP.\nAC   SEQUENCE_ID;\nDE   Example EMBL file.\nKW   .\nOS   Example Organism\nCC   This is a sample EMBL file\nFH   Key             Location/Qualifiers\nFT   source          1..1000\nFT                   /organism=\"Example Organism\"\nFT   gene            1..100\nFT                   /gene=\"example_gene\"\nSQ   Sequence 1000 BP; 0 A; 0 C; 0 G; 0 T; 1000 other;\n     atgctagcta gctagctagt cagctacgta gctagctagc tagctagcta gctagctacg       60\n     taccgcgcgc gcgctagcta gctagctacg tacgtacgta cgtacgtacg tacgtacgta      120\n//",
+    category: "annotation",
+    icon: "FileCode",
+    databases: ["ENA", "EMBL-EBI"]
+  },
+  pdb: {
+    name: "PDB",
+    description: "Protein Data Bank format for 3D structural data",
+    extensions: [".pdb"],
+    example: "HEADER    EXAMPLE PDB FILE                        01-JAN-23   EXAMPLE\nTITLE     EXAMPLE PDB STRUCTURE\nAUTHOR    EXAMPLE AUTHOR\nREMARK    THIS IS AN EXAMPLE PDB FILE\nATOM      1  N   ALA A   1      27.460  24.330   9.560  1.00  0.00           N\nATOM      2  CA  ALA A   1      26.950  25.570   8.930  1.00  0.00           C\nATOM      3  C   ALA A   1      27.910  26.320   8.020  1.00  0.00           C\nATOM      4  O   ALA A   1      27.590  26.820   6.960  1.00  0.00           O\nATOM      5  CB  ALA A   1      25.790  25.210   8.100  1.00  0.00           C\nTER       6      ALA A   1\nEND",
+    category: "structure",
+    icon: "FileCode",
+    databases: ["RCSB PDB", "PDBe"]
+  },
+  mmcif: {
+    name: "mmCIF",
+    description: "Macromolecular Crystallographic Information File",
+    extensions: [".cif", ".mmcif"],
+    example: "data_EXAMPLE\n_entry.id EXAMPLE\nloop_\n_atom_site.group_PDB\n_atom_site.id\n_atom_site.type_symbol\n_atom_site.label_atom_id\n_atom_site.label_comp_id\nATOM 1 N N ALA\nATOM 2 C CA ALA\nATOM 3 C C ALA\nATOM 4 O O ALA\n# ...",
+    category: "structure",
+    icon: "FileCode",
+    databases: ["RCSB PDB", "PDBe"]
+  },
+  gff: {
+    name: "GFF/GTF",
+    description: "Generic Feature Format for genomic annotations",
+    extensions: [".gff", ".gff3", ".gtf"],
+    example: "##gff-version 3\n##sequence-region ctg123 1 1497228\nctg123\tSequence_ID\tgene\t1000\t9000\t.\t+\t.\tID=gene00001;Name=EDEN\nctg123\tSequence_ID\tTF_binding_site\t1000\t1012\t.\t+\t.\tID=tfbs00001;Parent=gene00001",
+    category: "annotation",
+    icon: "List",
+    databases: ["Ensembl", "UCSC"]
+  },
+  bed: {
+    name: "BED",
+    description: "Browser Extensible Data format for genomic regions",
+    extensions: [".bed"],
+    example: "chr1\t11873\t14409\tuc001aaa.3\t0\t+\t11873\t11873\t0\t3\t354,109,1189\t0,739,1347\nchr1\t11873\t14409\tuc010nxr.1\t0\t+\t11873\t11873\t0\t3\t354,52,1189\t0,739,1347",
+    category: "annotation",
+    icon: "List",
+    databases: ["UCSC", "Ensembl"]
+  },
+  vcf: {
+    name: "VCF",
+    description: "Variant Call Format for DNA polymorphism data",
+    extensions: [".vcf"],
+    example: "##fileformat=VCFv4.2\n##INFO=<ID=NS,Number=1,Type=Integer,Description=\"Number of Samples\">\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE1\nchr1\t114576\trs123\tA\tT\t29\tPASS\tNS=1\tGT:GQ\t0|1:28",
+    category: "variation",
+    icon: "List",
+    databases: ["dbSNP", "gnomAD"]
+  },
+  sam: {
+    name: "SAM",
+    description: "Sequence Alignment/Map format",
+    extensions: [".sam"],
+    example: "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:ref\tLN:45\n@PG\tID:example\tPN:example\nread1\t0\tref\t7\t30\t8M2I4M1D3M\t=\t37\t39\tTTAGATAAAGGATACTG\t*\tNM:i:3",
+    category: "alignment",
+    icon: "List",
+    databases: ["SRA", "ENA"]
+  },
+  bam: {
+    name: "BAM",
+    description: "Binary version of SAM format",
+    extensions: [".bam"],
+    example: "[Binary data - cannot display]",
+    category: "alignment",
+    icon: "List",
+    databases: ["SRA", "ENA"]
+  },
+  newick: {
+    name: "Newick",
+    description: "Tree format for phylogenetic data",
+    extensions: [".nwk", ".newick"],
+    example: "(A:0.1,B:0.2,(C:0.3,D:0.4):0.5);",
+    category: "phylogeny",
+    icon: "GitBranch",
+    databases: ["TreeBASE"]
+  },
+  nexus: {
+    name: "NEXUS",
+    description: "File format for phylogenetic data",
+    extensions: [".nex", ".nexus"],
+    example: "#NEXUS\nBEGIN TAXA;\n\tDIMENSIONS NTAX=4;\n\tTAXLABELS A B C D;\nEND;\n\nBEGIN TREES;\n\tTREE tree1 = (A:0.1,B:0.2,(C:0.3,D:0.4):0.5);\nEND;",
+    category: "phylogeny",
+    icon: "GitBranch",
+    databases: ["TreeBASE"]
+  },
+  stockholm: {
+    name: "Stockholm",
+    description: "Multiple sequence alignment format used by Pfam",
+    extensions: [".sto", ".sth", ".stockholm"],
+    example: "# STOCKHOLM 1.0\n#=GF ID EXAMPLE\n#=GF AC EXAMPLE:001\nseq1 ACDEFGHIKLMNPQRST\nseq2 ACDEFGHIKLMNPQRST\nseq3 ACDEFGHI.LMNPQRST\n#=GC SS_cons ....HHHHHHHHH....\n//",
+    category: "alignment",
+    icon: "Layers",
+    databases: ["Pfam", "Rfam"]
+  },
+  clustal: {
+    name: "Clustal",
+    description: "Multiple sequence alignment format",
+    extensions: [".aln", ".clustal", ".clustalw"],
+    example: "CLUSTAL W (1.82) multiple sequence alignment\n\nseq1        MTENSTSTPAAKPKRAKLSSKERRYLTRKPMTTKDLLKKFQTKKTGLSSEQTVNVLAQILK\nseq2        MTDNSTSTPAAKPKRAKVSPKKRRYLTRKPMTTKDLLKKFQTKKTGLSSEQTVNVLAQILK\nseq3        MTENSTSTPAAKPKRAKVSPKERRYLTRKPMTTKDLLKKFQTKKTGLSSEQTVNVLAQILK\n             ** *************** ** **************************************",
+    category: "alignment",
+    icon: "Layers",
+    databases: ["UniProt"]
+  },
+  csv: {
+    name: "CSV",
+    description: "Comma-separated values format for tabular data",
+    extensions: [".csv"],
+    example: "ID,Sequence,Length,Organism\nseq1,ATGCTA,6,E. coli\nseq2,CCGTAA,6,S. cerevisiae",
+    category: "tabular",
+    icon: "FileText",
+    databases: []
+  }
+};
+
+// Format categories for organization
+export const FormatCategories = {
+  sequence: { name: "Sequence Formats", description: "Formats for storing biological sequences" },
+  annotation: { name: "Annotation Formats", description: "Formats for genomic annotations and features" },
+  structure: { name: "Structural Formats", description: "Formats for 3D molecular structures" },
+  alignment: { name: "Alignment Formats", description: "Formats for sequence alignments" },
+  phylogeny: { name: "Phylogeny Formats", description: "Formats for evolutionary relationships" },
+  variation: { name: "Variation Formats", description: "Formats for genetic variations" },
+  tabular: { name: "Tabular Formats", description: "General tabular data formats" }
+};
+
+// Conversion compatibility matrix
+export const ConversionMatrix = {
+  fasta: ['genbank', 'embl', 'gff', 'fastq', 'clustal', 'stockholm', 'pdb', 'newick'],
+  fastq: ['fasta'],
+  genbank: ['fasta', 'embl', 'gff'],
+  embl: ['fasta', 'genbank', 'gff'],
+  gff: ['fasta', 'bed'],
+  pdb: ['fasta', 'mmcif'],
+  mmcif: ['pdb', 'fasta'],
+  bed: ['gff'],
+  vcf: ['fasta'],
+  newick: ['nexus'],
+  nexus: ['newick'],
+  sam: ['fasta'],
+  stockholm: ['fasta', 'clustal'],
+  clustal: ['fasta', 'stockholm']
+};
