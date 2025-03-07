@@ -1543,4 +1543,95 @@ const BioFormatConverter = () => {
   );
 };
 
+// UIComponents.js
+import React from 'react';
+
+export const FileDropZone = ({ children, onDrop, onDragOver, onDragLeave, dragActive }) => {
+  return (
+    <div 
+      className={`border-2 ${dragActive ? 'border-blue-400 bg-blue-50' : 'border-dashed border-gray-300 bg-gray-50'} rounded-lg p-8 text-center`}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {children}
+    </div>
+  );
+};
+
+export const Notification = ({ message, onClose }) => {
+  return (
+    <div className="fixed bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded-md shadow-lg flex justify-between items-center">
+      <span>{message}</span>
+      {onClose && (
+        <button className="ml-3 text-white" onClick={onClose}>×</button>
+      )}
+    </div>
+  );
+};
+
+export const TabNavigation = ({ tabs, activeTab, onTabChange }) => {
+  return (
+    <div className="flex border-b mb-4">
+      {tabs.map(tab => (
+        <button
+          key={tab.id}
+          className={`px-4 py-2 font-medium ${activeTab === tab.id ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'}`}
+          onClick={() => onTabChange(tab.id)}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+};
+
+export const ConversionOptions = ({ options, setOptions, sourceFormat, targetFormat }) => {
+  return (
+    <div className="mt-3 border rounded-md p-3 bg-gray-50">
+      <h3 className="text-sm font-medium mb-2">Conversion Options</h3>
+      
+      <div className="grid grid-cols-2 gap-2">
+        {(sourceFormat === 'fasta' || targetFormat === 'fasta') && (
+          <label className="flex items-center">
+            <input
+              type="checkbox"
+              checked={options.formatSequence}
+              onChange={(e) => setOptions({...options, formatSequence: e.target.checked})}
+              className="mr-2"
+            />
+            <span className="text-sm">Format sequence with line breaks</span>
+          </label>
+        )}
+        
+        {sourceFormat === 'fastq' && (
+          <label className="flex items-center">
+            <input
+              type="checkbox"
+              checked={options.includeQuality}
+              onChange={(e) => setOptions({...options, includeQuality: e.target.checked})}
+              className="mr-2"
+            />
+            <span className="text-sm">Include quality scores</span>
+          </label>
+        )}
+        
+        {(sourceFormat === 'clustal' || sourceFormat === 'stockholm') && (
+          <label className="flex items-center">
+            <input
+              type="checkbox"
+              checked={options.removeGaps}
+              onChange={(e) => setOptions({...options, removeGaps: e.target.checked})}
+              className="mr-2"
+            />
+            <span className="text-sm">Remove alignment gaps</span>
+          </label>
+        )}
+        
+        {/* Add more format-specific options here */}
+      </div>
+    </div>
+  );
+};
+
 export default BioFormatConverter;
