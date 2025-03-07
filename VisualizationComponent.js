@@ -1,11 +1,12 @@
 // VisualizationComponent.js - Provides visualization for different biological data formats
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Layers, BarChart2, Activity, FileText, ChevronDown, ZoomIn, ZoomOut, RefreshCw, Download, Settings } from 'lucide-react';
 import * as d3 from 'd3';
 import * as THREE from 'three';
 import { formatSequenceForFasta } from './FormatConverters';
 import { detectSequenceType } from './FormatDetection';
+
 
 /**
  * Main Visualization Component that renders different visualizations based on format
